@@ -1,0 +1,1624 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-x3YdqVQEIi1s6FU1BFykfEEX1aGMSSFCwF9rQekSij0='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta name="referrer" content="no-referrer">
+<title>Cabinet</title>
+<!--
+  CABINET — v1.0
+  Appli de gestion pour psychologue en libéral : patients, planning des rendez-vous, notes de séance,
+  paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, exports pour le comptable.
+
+  Confidentialité (secret professionnel, données de santé) :
+  · Les données ne quittent jamais l'appareil : aucun serveur, aucun compte, aucune synchronisation.
+    La CSP n'autorise aucune connexion vers l'extérieur (connect-src 'self' : seulement les fichiers de l'appli).
+  · Elles sont chiffrées (AES-GCM 256) avant d'être écrites dans le navigateur. La clé de données est aléatoire ;
+    elle est elle-même chiffrée deux fois : par le code (PBKDF2-SHA-256) et par la clé de secours.
+    Sans l'un des deux, rien n'est lisible — ni dans le téléphone, ni dans une sauvegarde.
+  · Verrouillage automatique après quelques minutes sans activité ou en quittant l'appli ; mode discret (initiales).
+
+  iPhone : à ajouter à l'écran d'accueil (Safari → Partager → Sur l'écran d'accueil). Safari efface les données d'un
+  site non ouvert depuis 7 jours, mais pas celles d'une appli ajoutée à l'écran d'accueil.
+
+  Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
+  avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
+-->
+<meta name="theme-color" content="#f5f4f2">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Cabinet">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.webmanifest">
+<!-- Apparence choisie sur cet appareil (claire, sombre ou celle du téléphone) : appliquée avant le premier affichage -->
+<script>try{var t=localStorage.getItem('cabinet.theme');if(t==='clair'||t==='sombre')document.documentElement.dataset.theme=t;}catch(e){}</script>
+<style>
+/* ==========================================================================
+   1. JETONS — clair par défaut ; sombre si le téléphone l'est (ou si choisi)
+   ========================================================================== */
+:root{
+  color-scheme: light;
+  --fond:#f5f4f2; --fond-2:#ecebe8; --champ:#ffffff; --carte:#ffffff; --carte-2:#f8f7f5;
+  --trait:#d9d7d3; --trait-doux:#e7e5e1;
+  --texte:#1c1c1f; --texte-doux:#4c4c54; --texte-faible:#64646c;
+  --accent:#2c6a88; --accent-fond:#2c6a8814; --accent-texte:#ffffff;
+  --bleu:#1d5dab; --vert:#0a6b49; --jaune:#7a5100; --rose:#a02b53; --violet:#5446b8; --orange:#9c3914; --gris:#55555e;
+  --f-bleu:#1d5dab14; --f-vert:#0a6b4914; --f-jaune:#c9850020; --f-rose:#a02b5314; --f-violet:#5446b814; --f-orange:#9c391414; --f-gris:#55555e12;
+  --sur:0 0 0;
+  --ombre:0 1px 2px #0000000d, 0 6px 20px #00000012;
+  --voile:#14141899;
+  --rayon:14px;
+  --police:-apple-system,BlinkMacSystemFont,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --haut:env(safe-area-inset-top, 0px); --bas:env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="clair"]){
+    color-scheme: dark;
+    --fond:#1b1b1d; --fond-2:#232326; --champ:#19191c; --carte:#242427; --carte-2:#2a2a2e;
+    --trait:#38383f; --trait-doux:#2e2e33;
+    --texte:#f1f1f2; --texte-doux:#b1b1b9; --texte-faible:#9a9aa3;
+    --accent:#6fb1d3; --accent-fond:#6fb1d31c; --accent-texte:#0f1a20;
+    --bleu:#7ab0f0; --vert:#4ec89b; --jaune:#e5b54a; --rose:#e78aab; --violet:#b0a7f2; --orange:#ef8759; --gris:#b3b3ba;
+    --f-bleu:#3987e526; --f-vert:#199e7029; --f-jaune:#c9850029; --f-rose:#d5518126; --f-violet:#9085e926; --f-orange:#d9592626; --f-gris:#85858e22;
+    --sur:255 255 255;
+    --ombre:0 1px 2px #00000040, 0 8px 24px #00000030;
+    --voile:#0a0a0cb3;
+  }
+}
+:root[data-theme="sombre"]{
+  color-scheme: dark;
+  --fond:#1b1b1d; --fond-2:#232326; --champ:#19191c; --carte:#242427; --carte-2:#2a2a2e;
+  --trait:#38383f; --trait-doux:#2e2e33;
+  --texte:#f1f1f2; --texte-doux:#b1b1b9; --texte-faible:#9a9aa3;
+  --accent:#6fb1d3; --accent-fond:#6fb1d31c; --accent-texte:#0f1a20;
+  --bleu:#7ab0f0; --vert:#4ec89b; --jaune:#e5b54a; --rose:#e78aab; --violet:#b0a7f2; --orange:#ef8759; --gris:#b3b3ba;
+  --f-bleu:#3987e526; --f-vert:#199e7029; --f-jaune:#c9850029; --f-rose:#d5518126; --f-violet:#9085e926; --f-orange:#d9592626; --f-gris:#85858e22;
+  --sur:255 255 255;
+  --ombre:0 1px 2px #00000040, 0 8px 24px #00000030;
+  --voile:#0a0a0cb3;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{background:var(--fond);color:var(--texte);font-family:var(--police);font-size:15px;line-height:1.45;min-height:100dvh;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;touch-action:manipulation}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+[hidden]{display:none !important}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.doux{color:var(--texte-doux)} .faible{color:var(--texte-faible)}
+.mono,.num{font-variant-numeric:tabular-nums}
+.tronque{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.aide{font-size:13.5px;color:var(--texte-doux);margin:0 0 12px}
+
+/* ==========================================================================
+   2. CADRE — barre du haut, page, onglets du bas (comme une appli iPhone)
+   ========================================================================== */
+.barre{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:8px;padding:calc(10px + var(--haut)) 16px 10px;background:color-mix(in srgb, var(--fond) 88%, transparent);-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);border-bottom:1px solid var(--trait-doux)}
+.barre h1{flex:1;margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barre .retour{margin-left:-6px}
+.rond{width:38px;height:38px;flex-shrink:0;display:grid;place-items:center;border-radius:12px;border:1px solid var(--trait);background:var(--carte);color:var(--texte-doux)}
+.rond:active{transform:scale(.96)}
+.rond.on{color:var(--accent);border-color:var(--accent);background:var(--accent-fond)}
+main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
+.onglets{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;justify-content:space-around;padding:6px 6px calc(6px + var(--bas));background:color-mix(in srgb, var(--carte) 92%, transparent);-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);border-top:1px solid var(--trait-doux)}
+.onglets a{flex:1;max-width:120px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:5px 2px;border-radius:10px;font-size:11px;font-weight:550;color:var(--texte-faible)}
+.onglets a.on{color:var(--accent)}
+.onglets .pastille{position:absolute;margin-left:22px;margin-top:-3px;min-width:17px;height:17px;padding:0 5px;border-radius:99px;background:var(--orange);color:#fff;font-size:10.5px;font-weight:700;line-height:17px;text-align:center}
+.onglets .ic{position:relative;display:grid;place-items:center}
+
+/* ==========================================================================
+   3. CARTES, TITRES, LISTES
+   ========================================================================== */
+.titre-page{margin:4px 0 14px}
+.titre-page h2{margin:0;font-size:26px;font-weight:750;letter-spacing:-.02em}
+.titre-page p{margin:3px 0 0;color:var(--texte-doux);font-size:14px}
+.carte{background:var(--carte);border:1px solid var(--trait-doux);border-radius:var(--rayon);padding:14px;box-shadow:var(--ombre);margin-bottom:14px}
+.carte > h3,.section-titre{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:15px;font-weight:650}
+.section-titre{margin:20px 2px 8px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--texte-faible);font-weight:650}
+.carte > h3 .droite,.section-titre .droite{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500}
+.grille{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:14px}
+@media (min-width:700px){.grille.g4{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.chiffre{background:var(--carte);border:1px solid var(--trait-doux);border-radius:var(--rayon);padding:12px 13px;box-shadow:var(--ombre);min-width:0}
+.chiffre .lib{font-size:12.5px;color:var(--texte-doux);display:flex;align-items:center;gap:6px}
+.chiffre .val{font-size:22px;font-weight:700;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chiffre .note{font-size:12px;color:var(--texte-faible);margin-top:2px}
+.chiffre.att .val{color:var(--orange)}
+.liste{list-style:none;margin:0;padding:0}
+.liste > li{display:flex;align-items:center;gap:10px;padding:11px 2px;border-top:1px solid var(--trait-doux);min-width:0}
+.liste > li:first-child{border-top:0}
+.liste .corps{flex:1;min-width:0}
+.liste .t{font-weight:560;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.liste .s{font-size:13px;color:var(--texte-doux);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.liste .droite{text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums}
+.ligne-btn{width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:transparent;border:0;padding:0;min-width:0}
+.vide{text-align:center;padding:22px 10px;color:var(--texte-doux);font-size:14px}
+.vide .boutons{justify-content:center;margin-top:10px}
+
+/* ==========================================================================
+   4. BOUTONS, PUCES, CHAMPS
+   ========================================================================== */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:8px 14px;border-radius:11px;border:1px solid var(--trait);background:var(--carte);color:var(--texte);font-size:14.5px;font-weight:560;line-height:1.2;white-space:nowrap}
+.btn:active{transform:scale(.98)}
+.btn.p{background:var(--accent);border-color:var(--accent);color:var(--accent-texte);font-weight:650}
+.btn.danger{color:var(--rose);border-color:color-mix(in srgb, var(--rose) 40%, var(--trait))}
+.btn.p.danger{background:var(--rose);border-color:var(--rose);color:#fff}
+.btn.f{background:transparent;border-color:transparent;color:var(--accent);padding-left:8px;padding-right:8px}
+.btn.petit{min-height:32px;padding:5px 10px;font-size:13px;border-radius:9px}
+.btn.plein{width:100%}
+.btn[disabled]{opacity:.5;pointer-events:none}
+.boutons{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.puce{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap;line-height:1.5;background:var(--f-gris);color:var(--gris)}
+.puce.bleu{background:var(--f-bleu);color:var(--bleu)} .puce.vert{background:var(--f-vert);color:var(--vert)} .puce.jaune{background:var(--f-jaune);color:var(--jaune)}
+.puce.rose{background:var(--f-rose);color:var(--rose)} .puce.violet{background:var(--f-violet);color:var(--violet)} .puce.orange{background:var(--f-orange);color:var(--orange)}
+.segment{display:inline-flex;background:var(--fond-2);border-radius:11px;padding:3px;gap:2px}
+.segment button{border:0;background:transparent;padding:6px 12px;border-radius:9px;font-size:13.5px;font-weight:560;color:var(--texte-doux);min-height:32px}
+.segment button.on{background:var(--carte);color:var(--texte);box-shadow:0 1px 3px #0000001f}
+.champ{display:flex;flex-direction:column;gap:5px;margin:0 0 12px;min-width:0}
+.champ > span{font-size:13px;font-weight:600;color:var(--texte-doux)}
+.champ > span em{font-style:normal;font-weight:400;color:var(--texte-faible)}
+.champ input,.champ select,.champ textarea,.saisie{width:100%;min-height:44px;padding:10px 12px;border-radius:11px;border:1px solid var(--trait);background:var(--champ);font-size:16px;outline:none;-webkit-appearance:none;appearance:none}
+.champ select{background-image:linear-gradient(45deg,transparent 50%,var(--texte-faible) 50%),linear-gradient(135deg,var(--texte-faible) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:32px}
+.champ textarea{min-height:110px;resize:vertical;line-height:1.5}
+.champ input:focus,.champ select:focus,.champ textarea:focus,.saisie:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-fond)}
+.champ.erreur input{border-color:var(--rose)}
+.deux{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px}
+.case-ligne{display:flex;align-items:flex-start;gap:10px;margin:2px 0 14px;font-size:14.5px}
+.case-ligne input{width:22px;height:22px;margin:0;accent-color:var(--accent);flex-shrink:0}
+.message-erreur{color:var(--rose);font-size:13.5px;margin:-4px 0 10px}
+
+/* ==========================================================================
+   5. FENÊTRES (feuilles qui montent du bas), MESSAGE, VERROU
+   ========================================================================== */
+.voile{position:fixed;inset:0;z-index:60;background:var(--voile);display:flex;align-items:flex-end;justify-content:center;opacity:0;transition:opacity .2s}
+.voile.on{opacity:1}
+.feuille{width:100%;max-width:620px;max-height:calc(100dvh - var(--haut) - 18px);overflow:auto;-webkit-overflow-scrolling:touch;background:var(--fond);border-radius:20px 20px 0 0;padding:8px 16px calc(18px + var(--bas));transform:translateY(24px);transition:transform .22s ease-out;overscroll-behavior:contain}
+.voile.on .feuille{transform:none}
+@media (min-width:700px){.voile{align-items:center}.feuille{border-radius:20px;padding-bottom:18px;max-height:88dvh}}
+.feuille .poignee{width:38px;height:5px;border-radius:9px;background:var(--trait);margin:2px auto 8px}
+.feuille-tete{display:flex;align-items:center;gap:10px;position:sticky;top:-8px;z-index:2;background:var(--fond);padding:6px 0 10px;margin-top:-6px}
+.feuille-tete h2{flex:1;margin:0;font-size:18px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.feuille-pied{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:6px}
+.feuille-pied .btn{flex:1;min-width:120px}
+.feuille-pied .btn.icone{flex:0 0 auto;min-width:46px}
+.toast{position:fixed;left:50%;bottom:calc(84px + var(--bas));transform:translateX(-50%);z-index:90;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:13px;background:var(--texte);color:var(--fond);font-size:14px;box-shadow:var(--ombre)}
+.toast button{border:0;background:transparent;color:inherit;font-weight:700;text-decoration:underline;padding:4px}
+.ecran{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:calc(24px + var(--haut)) 22px calc(24px + var(--bas))}
+.ecran .boite{width:100%;max-width:420px}
+.logo{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;margin:0 auto 14px;background:linear-gradient(150deg,#3d86a8,#24576f);color:#fff;box-shadow:0 6px 20px #24576f40}
+.ecran h1{text-align:center;font-size:24px;margin:0 0 6px;letter-spacing:-.02em}
+.ecran .sous{text-align:center;color:var(--texte-doux);margin:0 0 20px}
+.cle-secours{font-family:var(--mono);font-size:19px;letter-spacing:.06em;text-align:center;padding:14px;border-radius:12px;background:var(--carte);border:1px dashed var(--accent);user-select:all;-webkit-user-select:all;word-break:break-all}
+.points{list-style:none;padding:0;margin:0 0 18px}
+.points li{display:flex;gap:10px;align-items:flex-start;padding:8px 0;font-size:14.5px}
+.points li svg{flex-shrink:0;margin-top:2px;color:var(--accent)}
+.bandeau{display:flex;gap:10px;align-items:flex-start;padding:12px 13px;border-radius:13px;margin-bottom:14px;background:var(--f-jaune);border:1px solid color-mix(in srgb, var(--jaune) 30%, transparent);font-size:14px}
+.bandeau.bleu{background:var(--f-bleu);border-color:color-mix(in srgb, var(--bleu) 25%, transparent)}
+.bandeau.rose{background:var(--f-rose);border-color:color-mix(in srgb, var(--rose) 25%, transparent)}
+.bandeau svg{flex-shrink:0;margin-top:2px}
+.bandeau .txt{flex:1;min-width:0}
+.bandeau strong{display:block}
+
+/* ==========================================================================
+   6. RENDEZ-VOUS — cartes, statuts, semaine, journée
+   ========================================================================== */
+.rdv{padding:11px 12px;border-radius:13px;background:var(--carte);border:1px solid var(--trait-doux);margin-bottom:8px}
+.rdv > .ligne-btn{align-items:stretch;gap:11px}
+.rdv .heure{flex-shrink:0;width:52px;font-variant-numeric:tabular-nums;font-weight:650;font-size:14.5px;line-height:1.3}
+.rdv .heure small{display:block;font-weight:500;font-size:12px;color:var(--texte-faible)}
+.rdv .barre-c{width:3px;border-radius:3px;background:var(--c, var(--accent));flex-shrink:0}
+.rdv .corps{flex:1;min-width:0}
+.rdv .nom{font-weight:620;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rdv .meta{font-size:12.5px;color:var(--texte-doux);display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:3px}
+.rdv.annule .nom,.rdv.annule .heure{text-decoration:line-through;color:var(--texte-faible)}
+.rdv.bloque{background:repeating-linear-gradient(135deg,var(--carte),var(--carte) 8px,var(--carte-2) 8px,var(--carte-2) 16px)}
+.rdv.maintenant{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.actions-rdv{display:flex;gap:6px;flex-wrap:wrap;margin:9px 0 0 66px}
+@media (max-width:380px){.actions-rdv{margin-left:0}}
+.libre{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;margin-bottom:8px;border-radius:12px;border:1px dashed var(--trait);background:transparent;color:var(--texte-faible);font-size:13px;text-align:left}
+.libre strong{color:var(--texte-doux);font-weight:600}
+.semaine-bande{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-bottom:12px}
+.semaine-bande button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:7px 0 6px;border-radius:12px;border:1px solid transparent;background:transparent;color:var(--texte-doux);font-size:11.5px}
+.semaine-bande button b{font-size:17px;color:var(--texte);font-weight:650}
+.semaine-bande button.on{background:var(--accent);color:var(--accent-texte)}
+.semaine-bande button.on b{color:var(--accent-texte)}
+.semaine-bande button.auj:not(.on) b{color:var(--accent)}
+.semaine-bande .pts{display:flex;gap:2px;height:5px}
+.semaine-bande .pts i{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.7}
+.nav-periode{display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.nav-periode strong{font-size:16px;font-weight:650;min-width:0}
+.nav-periode .segment{margin-left:auto}
+.jour-semaine h4{margin:14px 2px 6px;font-size:13.5px;font-weight:650;color:var(--texte-doux);display:flex;gap:8px;align-items:center}
+.jour-semaine h4.auj{color:var(--accent)}
+.grille-h{display:none}
+@media (min-width:760px){
+  .semaine-liste{display:none}
+  .grille-h{display:grid;position:relative;grid-template-columns:44px repeat(var(--n),minmax(0,1fr));background:var(--carte);border:1px solid var(--trait-doux);border-radius:var(--rayon);overflow:hidden}
+  .grille-h .entete{position:sticky;top:0;padding:8px 4px;text-align:center;font-size:12.5px;color:var(--texte-doux);border-bottom:1px solid var(--trait-doux);border-left:1px solid var(--trait-doux);background:var(--carte)}
+  .grille-h .entete.auj{color:var(--accent);font-weight:700}
+  .grille-h .coin{border-bottom:1px solid var(--trait-doux)}
+  .grille-h .heures{position:relative}
+  .grille-h .heures span{position:absolute;right:6px;transform:translateY(-50%);font-size:11px;color:var(--texte-faible);font-variant-numeric:tabular-nums}
+  .grille-h .col{position:relative;border-left:1px solid var(--trait-doux);background-image:linear-gradient(to bottom,var(--trait-doux) 1px,transparent 1px);background-size:100% var(--h)}
+  .grille-h .bloc{position:absolute;left:3px;right:3px;border-radius:8px;padding:3px 6px;font-size:11.5px;line-height:1.25;overflow:hidden;text-align:left;border:0;border-left:3px solid var(--c);background:color-mix(in srgb, var(--c) 14%, var(--carte));color:var(--texte)}
+  .grille-h .bloc b{display:block;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .grille-h .bloc.annule{opacity:.55;text-decoration:line-through}
+}
+
+/* ==========================================================================
+   7. PATIENTS, NOTES, FINANCES
+   ========================================================================== */
+.avatar{width:40px;height:40px;border-radius:50%;flex-shrink:0;display:grid;place-items:center;font-size:14px;font-weight:700;color:#fff;background:var(--c, var(--accent))}
+.recherche{position:relative;margin-bottom:12px}
+.recherche svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--texte-faible)}
+.recherche input{padding-left:38px}
+.tete-patient{display:flex;gap:12px;align-items:center;margin:4px 0 12px}
+.tete-patient .avatar{width:54px;height:54px;font-size:18px}
+.tete-patient h2{margin:0;font-size:22px;letter-spacing:-.01em}
+.actions-rapides{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:14px}
+.actions-rapides a,.actions-rapides button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:13px;background:var(--carte);border:1px solid var(--trait-doux);color:var(--accent);font-size:12px;font-weight:600}
+.actions-rapides .off{opacity:.4;pointer-events:none}
+.infos{display:grid;grid-template-columns:auto minmax(0,1fr);gap:7px 14px;font-size:14px;margin:0}
+.infos dt{color:var(--texte-faible)}
+.infos dd{margin:0;overflow-wrap:anywhere}
+.note-seance{white-space:pre-wrap;overflow-wrap:anywhere;font-size:15px;line-height:1.55}
+.apercu-note{font-size:13px;color:var(--texte-doux);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}
+.jauge{height:8px;border-radius:99px;background:rgb(var(--sur) / .08);overflow:hidden;margin-top:8px}
+.jauge i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.jauge.att i{background:var(--orange)}
+.barres{display:flex;align-items:flex-end;gap:5px;height:120px;margin-top:6px}
+.barres .b{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end;min-width:0}
+.barres .b i{width:100%;max-width:26px;border-radius:5px 5px 2px 2px;background:var(--accent);min-height:2px}
+.barres .b.vide i{background:rgb(var(--sur) / .1)}
+.barres .b span{font-size:10.5px;color:var(--texte-faible)}
+.barres .b.on span{color:var(--texte);font-weight:700}
+.cat-ligne{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;padding:7px 0;border-top:1px solid var(--trait-doux);font-size:14px}
+.cat-ligne:first-child{border-top:0}
+.cat-ligne .jauge{grid-column:1 / -1;margin-top:2px;height:6px}
+.cat-ligne .jauge i{background:var(--c)}
+.total-ligne{display:flex;justify-content:space-between;font-weight:700;padding-top:10px;margin-top:6px;border-top:1px solid var(--trait)}
+.case-liste li{cursor:pointer}
+.case-liste input{width:22px;height:22px;accent-color:var(--accent);margin:0}
+@media (max-width:380px){.actions-rapides{gap:6px}.actions-rapides a,.actions-rapides button{font-size:11px}.chiffre .val{font-size:19px}}
+@media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div id="racine"></div>
+<script>
+'use strict';
+/* ==========================================================================
+   A. DONNÉES — un seul objet DB, chiffré à chaque enregistrement
+   ========================================================================== */
+const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.0';
+const STATUTS_PATIENT = [['actif', 'En suivi', 'vert'], ['attente', 'En attente', 'jaune'], ['termine', 'Suivi terminé', 'gris']];
+const STATUTS_RDV = {prevu:['Prévu', 'bleu'], honore:['Honoré', 'vert'], absent:['Absent', 'rose'], annule:['Annulé', 'gris']};
+const MODES = [['cb', 'Carte'], ['especes', 'Espèces'], ['cheque', 'Chèque'], ['virement', 'Virement'], ['autre', 'Autre']];
+const CATEGORIES = [['loyer', 'Loyer du cabinet', 'bleu'], ['urssaf', 'URSSAF', 'orange'], ['cipav', 'CIPAV (retraite)', 'violet'], ['cfe', 'CFE et impôts', 'jaune'],
+  ['assurance', 'Assurance RCP', 'vert'], ['prevoyance', 'Mutuelle et prévoyance', 'rose'], ['supervision', 'Supervision', 'violet'], ['formation', 'Formation', 'bleu'],
+  ['materiel', 'Matériel et fournitures', 'gris'], ['logiciel', 'Logiciels et abonnements', 'gris'], ['telephone', 'Téléphone et internet', 'gris'],
+  ['comptable', 'Comptable et AGA', 'jaune'], ['banque', 'Banque', 'gris'], ['deplacement', 'Déplacements', 'orange'], ['autre', 'Autre', 'gris']];
+const LIEUX = ['Cabinet', 'Visio', 'Domicile', 'Téléphone'];
+const REGLAGES = {
+  praticien:'', profession:'Psychologue', adresse:'', telephone:'', email:'', adeli:'', siret:'',
+  tarif:60, duree:50, debut:'08:00', fin:'20:00', jours:[1, 2, 3, 4, 5],
+  absenceFacturee:true, provision:25, seuil:77700, rappelSauvegarde:7, derniereSauvegarde:'',
+  verrou:5, discret:false,
+  modeleRappel:'Bonjour {prenom}, je vous rappelle notre rendez-vous {jour} à {heure}. Bonne journée. {praticien}',
+  modeleRelance:'Bonjour {prenom}, sauf erreur de ma part, {seances} reste à régler ({montant}). Merci, bonne journée. {praticien}'
+};
+const vierge = () => ({version:VERSION, reglages:{...REGLAGES}, patients:[], rdv:[], notes:[], charges:[], fixes:[], recettes:[]});
+let DB = vierge();
+
+const txt = v => typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
+const nombre = (v, def = 0) => { const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.')); return isFinite(n) ? Math.round(n * 100) / 100 : def; };
+const dateValide = v => /^\d{4}-\d{2}-\d{2}$/.test(txt(v)) ? txt(v) : '';
+const heureValide = v => /^([01]\d|2[0-3]):[0-5]\d$/.test(txt(v)) ? txt(v) : '';
+const unDe = (v, liste, def) => liste.includes(v) ? v : def;
+/* Toute donnée lue (déchiffrée, restaurée, saisie) repasse par ici : formes sûres, valeurs bornées */
+function normaliser(d){
+  d = d && typeof d === 'object' ? d : {};
+  const r = {...REGLAGES, ...(d.reglages || {})};
+  r.tarif = nombre(r.tarif, 60); r.duree = Math.min(240, Math.max(10, Math.round(nombre(r.duree, 50))));
+  r.debut = heureValide(r.debut) || '08:00'; r.fin = heureValide(r.fin) || '20:00';
+  r.jours = Array.isArray(r.jours) ? r.jours.filter(j => Number.isInteger(j) && j >= 0 && j <= 6) : [1, 2, 3, 4, 5];
+  r.provision = Math.min(80, Math.max(0, nombre(r.provision, 25))); r.seuil = Math.max(0, nombre(r.seuil, 77700));
+  r.rappelSauvegarde = Math.min(90, Math.max(0, Math.round(nombre(r.rappelSauvegarde, 7))));
+  r.verrou = [0, 1, 2, 5, 10, 15, 30].includes(r.verrou) ? r.verrou : 5; r.discret = !!r.discret; r.absenceFacturee = r.absenceFacturee !== false;
+  ['praticien', 'profession', 'adresse', 'telephone', 'email', 'adeli', 'siret', 'modeleRappel', 'modeleRelance', 'derniereSauvegarde'].forEach(k => r[k] = txt(r[k]));
+  const id = x => txt(x.id) || uid(), cree = x => txt(x.cree) || maintenant(), liste = k => Array.isArray(d[k]) ? d[k].filter(x => x && typeof x === 'object') : [];
+  const patients = liste('patients').map(p => ({id:id(p), nom:txt(p.nom), prenom:txt(p.prenom), naissance:dateValide(p.naissance), telephone:txt(p.telephone), email:txt(p.email),
+    adresse:txt(p.adresse), adressePar:txt(p.adressePar), medecin:txt(p.medecin), motif:txt(p.motif), statut:unDe(p.statut, ['actif', 'attente', 'termine'], 'actif'),
+    debut:dateValide(p.debut), demande:dateValide(p.demande), tarif:p.tarif === '' || p.tarif == null ? null : nombre(p.tarif, null), duree:p.duree ? Math.round(nombre(p.duree, 0)) || null : null,
+    infos:txt(p.infos), couleur:Math.abs(Math.round(nombre(p.couleur, 0))) % 6, demo:!!p.demo || undefined, cree:cree(p), modif:txt(p.modif) || cree(p)}));
+  const rdv = liste('rdv').filter(x => dateValide(x.date) && heureValide(x.heure)).map(x => ({id:id(x), patient:txt(x.patient), titre:txt(x.titre), date:x.date, heure:x.heure,
+    duree:Math.min(600, Math.max(5, Math.round(nombre(x.duree, 50)))), lieu:txt(x.lieu) || 'Cabinet', statut:unDe(x.statut, Object.keys(STATUTS_RDV), 'prevu'),
+    facturer:x.facturer !== false, montant:nombre(x.montant, 0), regle:x.regle && typeof x.regle === 'object' && nombre(x.regle.montant, 0) > 0
+      ? {date:dateValide(x.regle.date) || x.date, mode:unDe(x.regle.mode, MODES.map(m => m[0]), 'autre'), montant:nombre(x.regle.montant, 0)} : null,
+    serie:txt(x.serie), note:txt(x.note), demo:!!x.demo || undefined, cree:cree(x), modif:txt(x.modif) || cree(x)}));
+  const notes = liste('notes').map(n => ({id:id(n), patient:txt(n.patient), rdv:txt(n.rdv), date:dateValide(n.date) || aujourdhui(), texte:typeof n.texte === 'string' ? n.texte : '',
+    demo:!!n.demo || undefined, cree:cree(n), modif:txt(n.modif) || cree(n)}));
+  const charges = liste('charges').filter(c => dateValide(c.date)).map(c => ({id:id(c), date:c.date, libelle:txt(c.libelle), categorie:unDe(c.categorie, CATEGORIES.map(x => x[0]), 'autre'),
+    montant:nombre(c.montant, 0), mode:unDe(c.mode, MODES.map(m => m[0]), 'virement'), fixe:txt(c.fixe), note:txt(c.note), demo:!!c.demo || undefined, cree:cree(c), modif:txt(c.modif) || cree(c)}));
+  const fixes = liste('fixes').map(f => ({id:id(f), libelle:txt(f.libelle), categorie:unDe(f.categorie, CATEGORIES.map(x => x[0]), 'autre'), montant:nombre(f.montant, 0),
+    jour:Math.min(28, Math.max(1, Math.round(nombre(f.jour, 5)))), mode:unDe(f.mode, MODES.map(m => m[0]), 'virement'), demo:!!f.demo || undefined}));
+  const recettes = liste('recettes').filter(x => dateValide(x.date)).map(x => ({id:id(x), date:x.date, libelle:txt(x.libelle), montant:nombre(x.montant, 0),
+    mode:unDe(x.mode, MODES.map(m => m[0]), 'virement'), demo:!!x.demo || undefined, cree:cree(x), modif:txt(x.modif) || cree(x)}));
+  return {version:VERSION, reglages:r, patients, rdv, notes, charges, fixes, recettes};
+}
+
+/* ==========================================================================
+   B. UTILITAIRES — dates à l'heure locale, formats, texte
+   ========================================================================== */
+const $ = (s, el = document) => el.querySelector(s), $$ = (s, el = document) => [...el.querySelectorAll(s)];
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+const maintenant = () => new Date().toISOString();
+const pad = n => String(n).padStart(2, '0');
+const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const aujourdhui = () => iso(new Date());
+function versDate(s){ if(!s) return null; if(/^\d{4}-\d{2}-\d{2}$/.test(s)){ const [a, m, j] = s.split('-').map(Number); return new Date(a, m - 1, j); } const d = new Date(s); return isNaN(d) ? null : d; }
+const decale = (j, n) => { const d = versDate(j); d.setDate(d.getDate() + n); return iso(d); };
+const lundiDe = j => { const d = versDate(j); return decale(j, -((d.getDay() + 6) % 7)); };
+const moisDe = j => j.slice(0, 7);
+const joursDansMois = ym => { const [a, m] = ym.split('-').map(Number); return new Date(a, m, 0).getDate(); };
+const decaleMois = (ym, n) => { const [a, m] = ym.split('-').map(Number); const d = new Date(a, m - 1 + n, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
+const minutes = h => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
+const versHeure = m => pad(Math.floor(m / 60) % 24) + ':' + pad(m % 60);
+const finRdv = r => versHeure(minutes(r.heure) + r.duree);
+const heureMaintenant = () => { const d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const majuscule = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const F = {
+  long:new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'numeric', month:'long'}),
+  longAn:new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'numeric', month:'long', year:'numeric'}),
+  moyen:new Intl.DateTimeFormat('fr-FR', {day:'numeric', month:'long', year:'numeric'}),
+  court:new Intl.DateTimeFormat('fr-FR', {day:'numeric', month:'short'}),
+  courtAn:new Intl.DateTimeFormat('fr-FR', {day:'2-digit', month:'2-digit', year:'numeric'}),
+  jourSem:new Intl.DateTimeFormat('fr-FR', {weekday:'short'}),
+  mois:new Intl.DateTimeFormat('fr-FR', {month:'long', year:'numeric'}),
+  moisCourt:new Intl.DateTimeFormat('fr-FR', {month:'short'}),
+  eur:new Intl.NumberFormat('fr-FR', {style:'currency', currency:'EUR'}),
+  eur0:new Intl.NumberFormat('fr-FR', {style:'currency', currency:'EUR', maximumFractionDigits:0})
+};
+const dateLongue = j => majuscule(F.long.format(versDate(j)));
+const dateLongueAn = j => majuscule(F.longAn.format(versDate(j)));
+const dateMoyenne = j => F.moyen.format(versDate(j));
+const dateCourte = j => F.court.format(versDate(j));
+const dateChiffres = j => F.courtAn.format(versDate(j));
+const nomMois = ym => majuscule(F.mois.format(versDate(ym + '-01')));
+const eur = n => F.eur.format(n || 0);
+const eurRond = n => Math.abs(n) >= 1000 ? F.eur0.format(n || 0) : F.eur.format(n || 0);
+const pluriel = (n, mot, pl) => n + ' ' + (n > 1 ? (pl || mot + 's') : mot);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+const somme = l => Math.round(l.reduce((a, x) => a + (Number(typeof x === 'number' ? x : x.montant) || 0), 0) * 100) / 100;
+const ilYA = j => { const n = Math.round((versDate(aujourdhui()) - versDate(j)) / 864e5); return n <= 0 ? 'aujourd’hui' : n === 1 ? 'hier' : n < 31 ? 'il y a ' + n + ' jours' : 'le ' + dateCourte(j); };
+const estIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const installee = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+/* ==========================================================================
+   C. COFFRE — chiffrement (Web Crypto) et stockage (IndexedDB)
+   La clé de données (aléatoire, 256 bits) chiffre DB. Elle est enveloppée deux fois : par une clé dérivée du code
+   (PBKDF2-SHA-256) et par une clé dérivée de la clé de secours. Le code n'est jamais enregistré.
+   ========================================================================== */
+const ITERATIONS = 310000, enc = new TextEncoder(), dec = new TextDecoder();
+const b64 = buf => { const u = buf instanceof Uint8Array ? buf : new Uint8Array(buf); let s = ''; for(let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+const deB64 = s => { const t = atob(String(s || '')); const u = new Uint8Array(t.length); for(let i = 0; i < t.length; i++) u[i] = t.charCodeAt(i); return u; };
+async function deriver(secret, sel, iter = ITERATIONS){
+  const base = await crypto.subtle.importKey('raw', enc.encode(String(secret).normalize('NFC')), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({name:'PBKDF2', hash:'SHA-256', salt:sel, iterations:iter}, base, {name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']);
+}
+async function chiffrer(cle, octets){ const iv = crypto.getRandomValues(new Uint8Array(12)); return {iv:b64(iv), ct:b64(await crypto.subtle.encrypt({name:'AES-GCM', iv}, cle, octets))}; }
+async function dechiffrer(cle, boite){ return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM', iv:deB64(boite.iv)}, cle, deB64(boite.ct))); }
+const importerCle = brut => crypto.subtle.importKey('raw', brut, {name:'AES-GCM'}, false, ['encrypt', 'decrypt']);
+/* Clé de secours : 24 caractères sans ambiguïté (pas de 0/O, 1/I/L), groupés par 4 — environ 119 bits */
+const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function nouvelleCleSecours(){ const v = crypto.getRandomValues(new Uint8Array(24)); let s = ''; for(const x of v) s += ALPHABET[x % ALPHABET.length]; return s.match(/.{4}/g).join('-'); }
+const normSecours = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+/* IndexedDB : une base « cabinet », un magasin, une seule entrée « coffre » */
+let baseIDB = null;
+function ouvrirIDB(){
+  if(baseIDB) return Promise.resolve(baseIDB);
+  return new Promise((ok, ko) => {
+    let r; try { r = indexedDB.open('cabinet', 1); } catch(e){ return ko(e); }
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => { baseIDB = r.result; baseIDB.onversionchange = () => { baseIDB.close(); baseIDB = null; }; ok(baseIDB); };
+    r.onerror = () => ko(r.error); r.onblocked = () => ko(new Error('base bloquée par un autre onglet'));
+  });
+}
+const idb = (mode, f) => ouvrirIDB().then(b => new Promise((ok, ko) => { const t = b.transaction('kv', mode), s = t.objectStore('kv'); const q = f(s); t.oncomplete = () => ok(q && q.result); t.onerror = () => ko(t.error); t.onabort = () => ko(t.error); }));
+const lireCoffre = () => idb('readonly', s => s.get('coffre'));
+const ecrireCoffre = c => idb('readwrite', s => s.put(c, 'coffre'));
+const effacerCoffre = () => idb('readwrite', s => s.delete('coffre'));
+
+let cleDonnees = null, coffre = null;   /* en mémoire seulement pendant que l'appli est déverrouillée */
+const verifCoffre = c => c && c.app === 'cabinet' && c.v === 1 && c.sel && c.cle && c.cle.code && c.cle.secours && c.donnees && c.donnees.iv && c.donnees.ct;
+async function creerCoffre(code, secours, donnees){
+  const brut = crypto.getRandomValues(new Uint8Array(32)), selCode = crypto.getRandomValues(new Uint8Array(16)), selSec = crypto.getRandomValues(new Uint8Array(16));
+  const c = {app:'cabinet', v:1, iter:ITERATIONS, sel:{code:b64(selCode), secours:b64(selSec)},
+    cle:{code:await chiffrer(await deriver(code, selCode), brut), secours:await chiffrer(await deriver(normSecours(secours), selSec), brut)}};
+  cleDonnees = await importerCle(brut); brut.fill(0);
+  c.donnees = await chiffrer(cleDonnees, enc.encode(JSON.stringify(donnees))); c.maj = maintenant();
+  await ecrireCoffre(c); coffre = c; return c;
+}
+/* Ouvre un coffre avec le code (ou la clé de secours) ; renvoie les données, ou null si le secret est faux */
+async function ouvrirCoffre(c, secret, parSecours = false){
+  let brut;
+  try { brut = await dechiffrer(await deriver(parSecours ? normSecours(secret) : secret, deB64(parSecours ? c.sel.secours : c.sel.code), c.iter || ITERATIONS), parSecours ? c.cle.secours : c.cle.code); }
+  catch(e){ return null; }
+  const cle = await importerCle(brut);
+  const donnees = JSON.parse(dec.decode(await dechiffrer(cle, c.donnees)));
+  return {cle, brut, donnees};
+}
+/* Nouveau code : seule l'enveloppe « code » change (la clé de données et la clé de secours restent) */
+async function changerCode(brut, nouveau){
+  const sel = crypto.getRandomValues(new Uint8Array(16));
+  coffre.sel.code = b64(sel); coffre.cle.code = await chiffrer(await deriver(nouveau, sel, coffre.iter || ITERATIONS), brut);
+  await ecrireCoffre(coffre);
+}
+async function changerSecours(brut, nouvelle){
+  const sel = crypto.getRandomValues(new Uint8Array(16));
+  coffre.sel.secours = b64(sel); coffre.cle.secours = await chiffrer(await deriver(normSecours(nouvelle), sel, coffre.iter || ITERATIONS), brut);
+  await ecrireCoffre(coffre);
+}
+
+/* Enregistrement : chiffré puis écrit, regroupé (300 ms), forcé quand l'appli passe en arrière-plan */
+let minuterieSauver = 0, enCoursSauver = null, aSauver = false;
+function sauver(){ aSauver = true; clearTimeout(minuterieSauver); minuterieSauver = setTimeout(ecrireMaintenant, 300); }
+async function ecrireMaintenant(){
+  clearTimeout(minuterieSauver);
+  if(!aSauver || !cleDonnees || !coffre) return;
+  if(enCoursSauver){ await enCoursSauver; if(!aSauver) return; }
+  aSauver = false;
+  enCoursSauver = (async () => {
+    try { coffre.donnees = await chiffrer(cleDonnees, enc.encode(JSON.stringify(DB))); coffre.maj = maintenant(); await ecrireCoffre(coffre); }
+    catch(e){ aSauver = true; toast('Enregistrement impossible : ' + (e && e.message || e)); }
+  })();
+  await enCoursSauver; enCoursSauver = null;
+}
+
+/* ==========================================================================
+   D. PICTOGRAMMES
+   ========================================================================== */
+const ICONES = {
+  soleil:'<circle cx="12" cy="12" r="4.2"/><path d="M12 2.8v2.2M12 19v2.2M2.8 12h2.2M19 12h2.2M5.5 5.5l1.6 1.6M16.9 16.9l1.6 1.6M5.5 18.5l1.6-1.6M16.9 7.1l1.6-1.6"/>',
+  lune:'<path d="M20 14.6A8.2 8.2 0 1 1 9.4 4a6.6 6.6 0 0 0 10.6 10.6z"/>',
+  maison:'<path d="M3 10.6 12 3.4l9 7.2"/><path d="M5.6 9.4V20.6h12.8V9.4"/>',
+  portefeuille:'<rect x="3" y="6" width="18" height="13" rx="2.6"/><path d="M3 10.2h18"/><circle cx="17" cy="14.8" r="1.1"/>',
+  coche:'<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M8 12.2l2.8 2.8L16.4 9.4"/>',
+  cible:'<circle cx="12" cy="12" r="8.4"/><circle cx="12" cy="12" r="4.2"/><circle cx="12" cy="12" r="1"/>',
+  doc:'<path d="M14 3H7.4A1.4 1.4 0 0 0 6 4.4v15.2A1.4 1.4 0 0 0 7.4 21h9.2a1.4 1.4 0 0 0 1.4-1.4V7z"/><path d="M14 3v4.4h4M9 12.5h6M9 16h4"/>',
+  dossierOuvert:'<path d="M3.4 17.8V7.2a1.8 1.8 0 0 1 1.8-1.8h3.6l2 2.4h6.6a1.8 1.8 0 0 1 1.8 1.8v1.2"/><path d="M3.4 17.8l2.3-6a1.6 1.6 0 0 1 1.5-1h12.7a1 1 0 0 1 .9 1.4l-2.2 5.6a1.6 1.6 0 0 1-1.5 1H5a1.6 1.6 0 0 1-1.6-1z"/>',
+  dossier:'<path d="M3.4 7.2a1.8 1.8 0 0 1 1.8-1.8h3.6l2 2.4h7.8a1.8 1.8 0 0 1 1.8 1.8v8.4a1.8 1.8 0 0 1-1.8 1.8H5.2a1.8 1.8 0 0 1-1.8-1.8z"/>',
+  personnes:'<circle cx="9.2" cy="8.4" r="3.2"/><path d="M3.4 19.4c0-3 2.6-5 5.8-5s5.8 2 5.8 5M16.4 6.2a3 3 0 0 1 0 5.9M17.6 14.8c2 .6 3.4 2.2 3.4 4.6"/>',
+  carte:'<rect x="2.8" y="5.4" width="18.4" height="13.2" rx="2.6"/><path d="M2.8 10h18.4"/>',
+  lieu:'<path d="M12 21s-6.6-5.7-6.6-11.2a6.6 6.6 0 0 1 13.2 0C18.6 15.3 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.4"/>',
+  calendrier:'<rect x="3.4" y="5" width="17.2" height="16" rx="2.6"/><path d="M3.4 10h17.2M8.4 3v4M15.6 3v4"/>',
+  horloge:'<circle cx="12" cy="12" r="8.6"/><path d="M12 7.2V12l3.2 2"/>',
+  plus:'<path d="M12 5.6v12.8M5.6 12h12.8"/>',
+  ampoule:'<path d="M9.2 17.6h5.6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.4 10.9c.6.5.9 1.1.9 1.8h5c0-.7.3-1.3.9-1.8A6 6 0 0 0 12 3z"/>',
+  reglages:'<circle cx="12" cy="12" r="3.2"/><path d="M19.2 14.6a1.6 1.6 0 0 0 .3 1.8l.1.1a1.9 1.9 0 1 1-2.7 2.7l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2a1.9 1.9 0 1 1-3.8 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a1.9 1.9 0 1 1-2.7-2.7l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1h-.2a1.9 1.9 0 1 1 0-3.8h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a1.9 1.9 0 1 1 2.7-2.7l.1.1a1.6 1.6 0 0 0 1.8.3h.1a1.6 1.6 0 0 0 1-1.5v-.2a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a1.9 1.9 0 1 1 2.7 2.7l-.1.1a1.6 1.6 0 0 0-.3 1.8v.1a1.6 1.6 0 0 0 1.5 1h.2a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
+  fleche:'<path d="M5 12h13M13 6.6 18.4 12 13 17.4"/>',
+  retour:'<path d="M19 12H6M11 6.6 5.6 12 11 17.4"/>',
+  chevronG:'<path d="M14.4 6.6 9 12l5.4 5.4"/>',
+  chevronD:'<path d="M9.6 6.6 15 12l-5.4 5.4"/>',
+  chevronB:'<path d="M5.6 9.6 12 15l6.4-5.4"/>',
+  bas:'<path d="M12 5.4v13M6.8 13.4 12 18.6l5.2-5.2"/>',
+  haut:'<path d="M12 18.6v-13M6.8 10.6 12 5.4l5.2 5.2"/>',
+  euro:'<circle cx="12" cy="12" r="8.6"/><path d="M15.4 8.6a4.2 4.2 0 1 0 0 6.8M7.6 11h6M7.6 13.4h6"/>',
+  recherche:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  corbeille:'<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13"/>',
+  crayon:'<path d="M4 20h4l10-10-4-4L4 16z"/><path d="M14 6l4 4"/>',
+  check:'<path d="M5 12.5 9.2 17 19 7"/>',
+  tag:'<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
+  croix:'<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  cadeau:'<rect x="3.5" y="8" width="17" height="4" rx="1"/><path d="M5 12v8.5h14V12M12 8v12.5"/><path d="M12 8C10.5 5 7 4.5 7 6.5S10 8 12 8zM12 8c1.5-3 5-3.5 5-1.5S14 8 12 8z"/>',
+  bulle:'<path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5l1.5-5A8 8 0 1 1 20.5 12z"/>',
+  alerte:'<circle cx="12" cy="12" r="8.6"/><path d="M12 7.8v5M12 16.2v.1"/>',
+  telecharger:'<path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4.5 16.5v2.5h15v-2.5"/>',
+  importer:'<path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4.5 16.5v2.5h15v-2.5"/>',
+  archive:'<rect x="3.5" y="4.5" width="17" height="4.5" rx="1"/><path d="M5 9v10.5h14V9M10 13h4"/>',
+  commande:'<rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7.5 10l2.5 2-2.5 2M12.5 14.5h4"/>',
+  graphique:'<path d="M4 20V4M4 20h16"/><path d="M8.5 16v-4M12.5 16V8M16.5 16v-6"/>',
+  document:'<path d="M8.4 3h6.4l4.2 4.2v11.4a1.4 1.4 0 0 1-1.4 1.4H8.4A1.4 1.4 0 0 1 7 18.6V4.4A1.4 1.4 0 0 1 8.4 3z"/><path d="M14.6 3v4.4H19M4.6 7.4v12.2A1.4 1.4 0 0 0 6 21h9.4M10 12h5M10 15.4h3.4"/>',
+  lien:'<path d="M10 14a4.4 4.4 0 0 0 6.3 0l3-3a4.4 4.4 0 0 0-6.3-6.3l-1.3 1.3"/><path d="M14 10a4.4 4.4 0 0 0-6.3 0l-3 3a4.4 4.4 0 0 0 6.3 6.3l1.3-1.3"/>',
+  externe:'<path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4.6a1.4 1.4 0 0 1-1.4 1.4H5.4A1.4 1.4 0 0 1 4 18.6V7.4A1.4 1.4 0 0 1 5.4 6H10"/>',
+  image:'<rect x="3.5" y="4.5" width="17" height="15" rx="2.6"/><circle cx="9" cy="10" r="1.7"/><path d="M20.5 15.6l-5-5L7 19.5"/>',
+  courriel:'<rect x="3.4" y="5.4" width="17.2" height="13.2" rx="2.4"/><path d="M4 7.2l8 6 8-6"/>',
+  telephone:'<path d="M5.2 4h3.1l1.7 4.1-2.1 1.4a11.5 11.5 0 0 0 6.6 6.6l1.4-2.1 4.1 1.7v3.1a1.6 1.6 0 0 1-1.7 1.6A16.5 16.5 0 0 1 3.6 5.7 1.6 1.6 0 0 1 5.2 4z"/>',
+  agrandir:'<path d="M14 4h6v6M10 20H4v-6M20 4l-6.4 6.4M4 20l6.4-6.4"/>',
+  menu:'<path d="M4 6.5h16M4 12h16M4 17.5h16"/>',
+  sync:'<path d="M19.6 10.2A8 8 0 0 0 5.4 7.2L3.8 9"/><path d="M3.8 4.6V9h4.4"/><path d="M4.4 13.8a8 8 0 0 0 14.2 3L20.2 15"/><path d="M20.2 19.4V15h-4.4"/>',
+  base:'<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>',
+  cadenas:'<rect x="4.6" y="10.4" width="14.8" height="10.2" rx="2.4"/><path d="M8 10.4V7.6a4 4 0 0 1 8 0v2.8"/>',
+  oeil:'<path d="M2.6 12S6 5.6 12 5.6 21.4 12 21.4 12 18 18.4 12 18.4 2.6 12 2.6 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  oeilBarre:'<path d="M9.9 5.9A9.6 9.6 0 0 1 12 5.6c6 0 9.4 6.4 9.4 6.4a16 16 0 0 1-2.6 3.4M6.4 6.9A15.6 15.6 0 0 0 2.6 12S6 18.4 12 18.4a9 9 0 0 0 4.6-1.3"/><path d="M3.6 3.6l16.8 16.8M9.9 10a2.8 2.8 0 0 0 4.1 4"/>',
+  cle:'<circle cx="7.8" cy="15.4" r="3.8"/><path d="M10.6 12.6 19.4 3.8M16.4 6.8l2.4 2.4M14 9.2l2 2"/>',
+  bouclier:'<path d="M12 3 5 5.8v5.6c0 4.4 3 8 7 9.6 4-1.6 7-5.2 7-9.6V5.8z"/><path d="m9 12 2.2 2.2L15.4 10"/>',
+  note:'<path d="M14 3H7.4A1.4 1.4 0 0 0 6 4.4v15.2A1.4 1.4 0 0 0 7.4 21h9.2a1.4 1.4 0 0 0 1.4-1.4V7z"/><path d="M14 3v4.4h4M9 12.5h6M9 16h4"/>',
+  personne:'<circle cx="12" cy="8.4" r="3.6"/><path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0"/>',
+  sablier:'<path d="M6.5 3.5h11M6.5 20.5h11M7.8 3.5c0 4.6 4.2 5.4 4.2 8.5s-4.2 3.9-4.2 8.5M16.2 3.5c0 4.6-4.2 5.4-4.2 8.5s4.2 3.9 4.2 8.5"/>',
+  camera:'<rect x="3" y="6.5" width="12.6" height="11" rx="2.2"/><path d="m15.6 10.6 5.4-3v8.8l-5.4-3"/>',
+  partager:'<path d="M12 3.6v11M7.8 7.6 12 3.4l4.2 4.2"/><path d="M8 10.6H6.6a1.6 1.6 0 0 0-1.6 1.6v6.6a1.6 1.6 0 0 0 1.6 1.6h10.8a1.6 1.6 0 0 0 1.6-1.6v-6.6a1.6 1.6 0 0 0-1.6-1.6H16"/>',
+  encaisser:'<rect x="2.8" y="6" width="18.4" height="12" rx="2.4"/><circle cx="12" cy="12" r="2.6"/><path d="M6.4 9.6v.01M17.6 14.4v.01"/>',
+  repeter:'<path d="M17 3.6 20 6.6 17 9.6"/><path d="M4 11.4V9.6a3 3 0 0 1 3-3h13M7 20.4 4 17.4 7 14.4"/><path d="M20 12.6v1.8a3 3 0 0 1-3 3H4"/>'
+};
+const ico = (nom, taille = 18, epais = 1.8) =>
+  `<svg width="${taille}" height="${taille}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${epais}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nom] || ''}</svg>`;
+const COULEURS_AV = ['#2c6a88', '#0a6b49', '#8a5a00', '#a02b53', '#5446b8', '#9c3914'];
+
+/* ==========================================================================
+   E. CALCULS — séances, dû, réglé, impayés, encaissements
+   ========================================================================== */
+const unPatient = id => DB.patients.find(p => p.id === id) || null;
+const unRdv = id => DB.rdv.find(r => r.id === id) || null;
+const nomComplet = p => p ? [p.prenom, p.nom].filter(Boolean).join(' ') || 'Sans nom' : 'Patient supprimé';
+const initiales = p => p ? ((p.prenom || '').charAt(0) + (p.nom || '').charAt(0)).toUpperCase() || '?' : '?';
+/* Mode discret : initiales seulement (« C. M. »), partout où un nom apparaît à l'écran */
+const nomAff = p => !p ? 'Patient supprimé' : DB.reglages.discret ? [p.prenom, p.nom].filter(Boolean).map(x => x.charAt(0).toUpperCase() + '.').join(' ') || '?' : nomComplet(p);
+const titreRdv = r => r.patient ? nomAff(unPatient(r.patient)) : (r.titre || 'Créneau bloqué');
+const tarifDe = p => p && p.tarif != null ? p.tarif : DB.reglages.tarif;
+const dureeDe = p => p && p.duree ? p.duree : DB.reglages.duree;
+const couleurPatient = p => COULEURS_AV[(p && p.couleur) || 0];
+/* Une séance est due si elle a eu lieu, ou si le patient est absent sans prévenir (et que l'absence est facturée) */
+const facturable = r => !!r.patient && (r.statut === 'honore' || (r.statut === 'absent' && r.facturer));
+const du = r => facturable(r) ? r.montant : 0;
+const regleDe = r => r.regle ? r.regle.montant : 0;
+const reste = r => Math.max(0, Math.round((du(r) - regleDe(r)) * 100) / 100);
+const passe = r => r.date < aujourdhui() || (r.date === aujourdhui() && finRdv(r) <= heureMaintenant());
+const parDate = (a, b) => (a.date + a.heure).localeCompare(b.date + b.heure);
+const impayes = () => DB.rdv.filter(r => r.date <= aujourdhui() && reste(r) > 0).sort(parDate);
+const totalImpayes = () => somme(impayes().map(reste));
+const aPointer = () => DB.rdv.filter(r => r.statut === 'prevu' && r.patient && passe(r)).sort(parDate);
+const rdvDu = j => DB.rdv.filter(r => r.date === j).sort(parDate);
+const actifs = r => r.statut !== 'annule';
+const prochains = pid => { const auj = aujourdhui(), h = heureMaintenant(); return DB.rdv.filter(r => r.patient === pid && r.statut === 'prevu' && (r.date > auj || (r.date === auj && finRdv(r) > h))).sort(parDate); };
+const seancesDe = pid => DB.rdv.filter(r => r.patient === pid).sort(parDate).reverse();
+const notesDe = pid => DB.notes.filter(n => n.patient === pid).sort((a, b) => (b.date + b.cree).localeCompare(a.date + a.cree));
+const noteDuRdv = rid => DB.notes.find(n => n.rdv === rid) || null;
+/* Encaissements d'une période (date d'encaissement) : séances réglées + autres recettes */
+function encaissements(debut, fin){
+  const l = DB.rdv.filter(r => r.regle && r.regle.date >= debut && r.regle.date <= fin)
+    .map(r => ({date:r.regle.date, montant:r.regle.montant, mode:r.regle.mode, patient:r.patient, libelle:'Séance du ' + dateChiffres(r.date), rdv:r.id}));
+  DB.recettes.filter(x => x.date >= debut && x.date <= fin).forEach(x => l.push({date:x.date, montant:x.montant, mode:x.mode, patient:'', libelle:x.libelle || 'Autre recette', recette:x.id}));
+  return l.sort((a, b) => a.date.localeCompare(b.date));
+}
+const chargesEntre = (debut, fin) => DB.charges.filter(c => c.date >= debut && c.date <= fin).sort((a, b) => b.date.localeCompare(a.date));
+const chevauchements = r => DB.rdv.filter(x => x.id !== r.id && x.date === r.date && actifs(x) && minutes(x.heure) < minutes(r.heure) + r.duree && minutes(r.heure) < minutes(x.heure) + x.duree);
+/* Charges fixes du mois : saisies (une charge porte leur identifiant ce mois-là) ou pas encore */
+const fixeSaisie = (f, ym) => DB.charges.some(c => c.fixe === f.id && moisDe(c.date) === ym);
+const fixesASaisir = ym => DB.fixes.filter(f => !fixeSaisie(f, ym) && (ym < moisDe(aujourdhui()) || f.jour <= versDate(aujourdhui()).getDate()));
+const nomCategorie = k => (CATEGORIES.find(c => c[0] === k) || CATEGORIES[CATEGORIES.length - 1])[1];
+const couleurCategorie = k => (CATEGORIES.find(c => c[0] === k) || CATEGORIES[CATEGORIES.length - 1])[2];
+const nomMode = k => (MODES.find(m => m[0] === k) || ['', 'Autre'])[1];
+const sauvegardeEnRetard = () => { const r = DB.reglages; if(!r.rappelSauvegarde) return false; if(!r.derniereSauvegarde) return DB.patients.length > 0;
+  return (Date.now() - new Date(r.derniereSauvegarde).getTime()) / 864e5 >= r.rappelSauvegarde; };
+/* Remplit un modèle de message : {prenom}, {jour}, {heure}, {praticien}, {seances}, {montant} */
+const modele = (t, v) => String(t || '').replace(/\{(\w+)\}/g, (m, k) => v[k] != null ? v[k] : m);
+const lienSms = (tel, corps) => { const n = String(tel || '').replace(/[^\d+]/g, ''); return 'sms:' + n + (corps ? (estIOS() ? '&' : '?') + 'body=' + encodeURIComponent(corps) : ''); };
+const lienTel = tel => 'tel:' + String(tel || '').replace(/[^\d+]/g, '');
+const lienMail = (mail, sujet, corps) => 'mailto:' + encodeURIComponent(mail || '') + '?subject=' + encodeURIComponent(sujet || '') + '&body=' + encodeURIComponent(corps || '');
+const jourRelatif = j => j === aujourdhui() ? 'aujourd’hui' : j === decale(aujourdhui(), 1) ? 'demain' : 'le ' + F.long.format(versDate(j));
+
+/* ==========================================================================
+   F. BRIQUES D'AFFICHAGE
+   ========================================================================== */
+const btn = (action, texte, cls = 'btn', attrs = '') => `<button type="button" class="${cls}" data-action="${action}" ${attrs}>${texte}</button>`;
+const puce = (texte, couleur = 'gris') => `<span class="puce ${couleur}">${texte}</span>`;
+const puceStatut = r => r.patient ? puce(STATUTS_RDV[r.statut][0], STATUTS_RDV[r.statut][1]) : '';
+function pucePaiement(r){
+  if(!facturable(r)) return r.regle ? puce('Réglé ' + eur(r.regle.montant), 'vert') : '';
+  const rs = reste(r);
+  if(!rs) return puce('Réglé · ' + nomMode(r.regle.mode), 'vert');
+  if(r.date > aujourdhui()) return '';
+  return puce(r.regle ? 'Reste ' + eur(rs) : 'À régler ' + eur(rs), 'orange');
+}
+const avatar = p => `<span class="avatar" style="--c:${couleurPatient(p)}" aria-hidden="true">${esc(initiales(p))}</span>`;
+const vide = (texte, boutons = '') => `<div class="vide">${texte}${boutons ? `<div class="boutons">${boutons}</div>` : ''}</div>`;
+function carteRdv(r, {actions = false, date = false, titreDate = false} = {}){
+  const p = unPatient(r.patient), bloque = !r.patient, maint = r.date === aujourdhui() && r.heure <= heureMaintenant() && finRdv(r) > heureMaintenant() && r.statut !== 'annule';
+  const c = bloque ? 'var(--gris)' : `var(--${STATUTS_RDV[r.statut][1]})`;
+  const meta = [date && !titreDate ? dateCourte(r.date) : '', bloque ? '' : esc(r.lieu), bloque ? esc(r.lieu !== 'Cabinet' ? r.lieu : '') : puceStatut(r), bloque ? '' : pucePaiement(r),
+    !bloque && r.statut === 'honore' && !noteDuRdv(r.id) && r.date >= decale(aujourdhui(), -7) ? `<span class="faible">sans note</span>` : '', r.serie ? ico('repeter', 13) : ''].filter(Boolean).join(' ');
+  let act = '';
+  if(actions && !bloque){
+    if(r.statut === 'prevu' && (r.date < aujourdhui() || (r.date === aujourdhui() && r.heure <= heureMaintenant())))
+      act = btn('rdv-statut', ico('check', 15) + 'Honoré', 'btn petit', `data-id="${r.id}" data-v="honore"`) + btn('rdv-statut', 'Absent', 'btn petit', `data-id="${r.id}" data-v="absent"`) + btn('rdv-statut', 'Annulé', 'btn petit', `data-id="${r.id}" data-v="annule"`);
+    else if(reste(r) && r.date <= aujourdhui()) act = btn('encaisser', ico('encaisser', 15) + 'Encaisser ' + eur(reste(r)), 'btn petit', `data-id="${r.id}"`);
+    if(r.statut === 'honore' && !noteDuRdv(r.id)) act += btn('note-nouvelle', ico('note', 15) + 'Note', 'btn petit', `data-rdv="${r.id}"`);
+  }
+  return `<div class="rdv${r.statut === 'annule' ? ' annule' : ''}${bloque ? ' bloque' : ''}${maint ? ' maintenant' : ''}" style="--c:${c}">
+    <button type="button" class="ligne-btn" data-action="rdv-ouvrir" data-id="${r.id}" aria-label="${esc(titreRdv(r) + ', ' + dateLongue(r.date) + ' à ' + r.heure)}">
+      <span class="heure">${r.heure}<small>${finRdv(r)}</small></span><span class="barre-c"></span>
+      <span class="corps"><span class="nom" style="display:block">${esc(titreDate ? dateLongue(r.date) : titreRdv(r))}</span><span class="meta">${meta}</span></span></button>
+    ${act ? `<div class="actions-rdv">${act}</div>` : ''}</div>`;
+}
+
+/* --- Fenêtres : une feuille qui monte du bas (centrée sur grand écran) --- */
+let surFermeture = null, focusAvant = null;
+function ouvrir(titre, corps, {pied = '', apres = null, fermeture = null, large = false} = {}){
+  fermer(true);
+  focusAvant = document.activeElement;
+  const v = document.createElement('div');
+  v.className = 'voile'; v.id = 'voile';
+  v.innerHTML = `<div class="feuille" role="dialog" aria-modal="true" aria-labelledby="feuille-titre"${large ? ' style="max-width:760px"' : ''}><div class="poignee" aria-hidden="true"></div>
+    <div class="feuille-tete"><h2 id="feuille-titre">${titre}</h2><button type="button" class="rond" data-action="fermer" aria-label="Fermer">${ico('croix', 17)}</button></div>
+    <div class="feuille-corps">${corps}</div>${pied ? `<div class="feuille-pied">${pied}</div>` : ''}</div>`;
+  document.body.appendChild(v); document.body.style.overflow = 'hidden';
+  requestAnimationFrame(() => v.classList.add('on'));
+  v.addEventListener('click', e => { if(e.target === v) fermer(); });
+  surFermeture = fermeture;
+  if(apres) apres(v);
+  const premier = $('.feuille-corps [autofocus]', v); if(premier && !('ontouchstart' in window)) premier.focus();
+  return v;
+}
+function fermer(silencieux = false){
+  const v = $('#voile'); if(!v) return;
+  v.remove(); document.body.style.overflow = '';
+  const f = surFermeture; surFermeture = null;
+  if(!silencieux && f) f();
+  if(focusAvant && focusAvant.isConnected && !silencieux) try { focusAvant.focus({preventScroll:true}); } catch(e){ /* rien */ }
+}
+const feuilleOuverte = () => !!$('#voile');
+
+/* --- Formulaire générique ---
+   champs : {n, l, t:'texte'|'tel'|'email'|'date'|'heure'|'nombre'|'montant'|'select'|'zone'|'case'|'mdp'|'html', v, o:[{v,t}], aide, demi, requis, attrs}
+   onOk(valeurs) : renvoie un message d'erreur (la feuille reste ouverte) ou rien */
+function champHtml(c){
+  const id = 'ch-' + c.n, v = c.v ?? '', aide = c.aide ? ` <em>— ${esc(c.aide)}</em>` : '', at = c.attrs || '';
+  if(c.t === 'html') return c.html;
+  if(c.t === 'case') return `<label class="case-ligne"><input type="checkbox" name="${c.n}" id="${id}"${v ? ' checked' : ''} ${at}><span>${esc(c.l)}${c.aide ? `<br><span class="faible" style="font-size:13px">${esc(c.aide)}</span>` : ''}</span></label>`;
+  const entree = c.t === 'select' ? `<select name="${c.n}" id="${id}" ${at}>${c.o.map(o => `<option value="${esc(o.v)}"${String(o.v) === String(v) ? ' selected' : ''}>${esc(o.t)}</option>`).join('')}</select>`
+    : c.t === 'zone' ? `<textarea name="${c.n}" id="${id}" rows="${c.lignes || 5}" ${at}>${esc(v)}</textarea>`
+    : `<input name="${c.n}" id="${id}" value="${esc(v)}" ${{texte:'type="text"', tel:'type="tel" autocomplete="off"', email:'type="email" autocomplete="off" autocapitalize="off"', date:'type="date"', heure:'type="time" step="300"',
+      nombre:'type="text" inputmode="numeric"', montant:'type="text" inputmode="decimal"', mdp:'type="password" autocomplete="off" autocapitalize="off" spellcheck="false"'}[c.t || 'texte'] || 'type="text"'} ${c.requis ? 'required' : ''} ${at}>`;
+  return `<label class="champ" for="${id}"><span>${esc(c.l)}${aide}</span>${entree}</label>`;
+}
+function champsHtml(champs){
+  let h = '', i = 0;
+  while(i < champs.length){
+    const c = champs[i];
+    if(c.demi && champs[i + 1] && champs[i + 1].demi){ h += `<div class="deux">${champHtml(c)}${champHtml(champs[i + 1])}</div>`; i += 2; }
+    else { h += champHtml(c); i++; }
+  }
+  return h;
+}
+function lireForm(f){
+  const v = {};
+  $$('input,select,textarea', f).forEach(el => { if(!el.name) return; v[el.name] = el.type === 'checkbox' ? el.checked : el.value; });
+  return v;
+}
+function formulaire({titre, champs, ok = 'Enregistrer', onOk, avant = '', apresChamps = '', suppr = null, apres = null, fermeture = null}){
+  const corps = `<form id="form-feuille" novalidate>${avant}${champsHtml(champs)}${apresChamps}<p class="message-erreur" id="form-erreur" role="alert" hidden></p><button type="submit" hidden></button></form>`;
+  const pied = (suppr ? btn('form-suppr', ico('corbeille', 16) + 'Supprimer', 'btn danger') : '') + btn('form-ok', esc(ok), 'btn p');
+  ouvrir(esc(titre), corps, {pied, fermeture, apres:v => {
+    const f = $('#form-feuille', v);
+    const valider = async () => {
+      const err = await onOk(lireForm(f), f);
+      if(err){ const e = $('#form-erreur', v); e.textContent = err; e.hidden = false; return; }
+    };
+    f.addEventListener('submit', e => { e.preventDefault(); valider(); });
+    $('[data-action="form-ok"]', v).addEventListener('click', valider);
+    if(suppr) $('[data-action="form-suppr"]', v).addEventListener('click', suppr);
+    if(apres) apres(v, f);
+  }});
+}
+/* Confirmation : renvoie une promesse (true = confirmé) */
+function confirmer({titre, texte, ok = 'Confirmer', danger = false, saisie = ''}){
+  return new Promise(res => {
+    let fini = false; const fin = x => { if(fini) return; fini = true; res(x); };
+    ouvrir(esc(titre), `<p style="margin:0 0 14px">${texte}</p>${saisie ? `<label class="champ"><span>Tape « ${esc(saisie)} » pour confirmer</span><input id="conf-saisie" type="text" autocomplete="off" autocapitalize="characters"></label>` : ''}`,
+      {pied:btn('conf-non', 'Annuler', 'btn') + btn('conf-oui', esc(ok), danger ? 'btn p danger' : 'btn p'), fermeture:() => fin(false), apres:v => {
+        $('[data-action="conf-non"]', v).onclick = () => fermer();
+        $('[data-action="conf-oui"]', v).onclick = () => { if(saisie && $('#conf-saisie', v).value.trim().toUpperCase() !== saisie){ $('#conf-saisie', v).focus(); return; } surFermeture = null; fermer(); fin(true); };
+      }});
+  });
+}
+/* Message en bas de l'écran ; « Annuler » rétablit ce qui vient d'être supprimé */
+let minuterieToast = 0;
+function toast(texte, {annuler = null, duree = 4500} = {}){
+  let t = $('#toast'); if(t) t.remove(); clearTimeout(minuterieToast);
+  t = document.createElement('div'); t.className = 'toast'; t.id = 'toast'; t.setAttribute('role', 'status');
+  t.innerHTML = `<span>${esc(texte)}</span>${annuler ? '<button type="button">Annuler</button>' : ''}`;
+  document.body.appendChild(t);
+  if(annuler) $('button', t).onclick = () => { annuler(); t.remove(); };
+  minuterieToast = setTimeout(() => t.remove(), annuler ? 7000 : duree);
+}
+/* Suppression avec « Annuler » : copie de ce qui part, remise en place à l'identique */
+function supprimerAvecRetour(texte, quoi){
+  const avant = JSON.stringify(DB);
+  quoi(); sauver(); rendre();
+  toast(texte, {annuler:() => { DB = normaliser(JSON.parse(avant)); sauver(); rendre(); toast('Rétabli'); }});
+}
+
+/* ==========================================================================
+   G. ÉCRANS D'ACCUEIL ET DE VERROUILLAGE
+   ========================================================================== */
+let etat = 'init';   /* 'accueil' (pas encore de coffre), 'verrou', 'ouvert' */
+const logo = () => `<div class="logo">${ico('bouclier', 32, 1.7)}</div>`;
+const bandeauInstall = () => estIOS() && !installee() ? `<div class="bandeau rose">${ico('alerte', 18)}<div class="txt"><strong>À installer sur l’écran d’accueil</strong>
+  Dans Safari : bouton Partager ${ico('partager', 15)} puis « Sur l’écran d’accueil ». Indispensable : sans cela, Safari peut effacer les données au bout de 7 jours sans visite.</div></div>` : '';
+function ecran(html){ fermer(true); $('#racine').innerHTML = `<div class="ecran"><div class="boite">${html}</div></div>`; window.scrollTo(0, 0); }
+let assistant = {};
+function accueil(etape = 1){
+  etat = 'accueil';
+  if(etape === 1) return ecran(`${logo()}<h1>Cabinet</h1><p class="sous">Patients, rendez-vous, notes de séance et paiements, dans votre téléphone.</p>
+    ${bandeauInstall()}
+    <ul class="points"><li>${ico('cadenas', 19)}<span><strong>Chiffré par votre code.</strong> Sans lui, rien n’est lisible, ni dans le téléphone ni dans une sauvegarde.</span></li>
+      <li>${ico('bouclier', 19)}<span><strong>Rien ne quitte cet appareil.</strong> Aucun compte, aucun serveur, aucune synchronisation.</span></li>
+      <li>${ico('telecharger', 19)}<span><strong>Des sauvegardes chiffrées</strong>, à ranger où vous voulez, avec un rappel régulier.</span></li></ul>
+    <div class="boutons" style="flex-direction:column;align-items:stretch">${btn('acc-suite', 'Commencer', 'btn p plein', 'data-e="2"')}${btn('restaurer', ico('importer', 16) + 'Restaurer une sauvegarde', 'btn plein')}</div>`);
+  if(etape === 2) return ecran(`${logo()}<h1>Choisir un code</h1><p class="sous">Il sera demandé à chaque ouverture. 6 caractères au moins : une courte phrase est encore plus sûre.</p>
+    <form id="f-code" novalidate>${champHtml({n:'code', l:'Code', t:'mdp', attrs:'autofocus minlength="6"'})}${champHtml({n:'code2', l:'Le même, encore une fois', t:'mdp'})}
+    <p class="message-erreur" id="err" hidden></p><button class="btn p plein" type="submit">Continuer</button></form>
+    <div class="boutons" style="justify-content:center;margin-top:10px">${btn('acc-suite', 'Retour', 'btn f', 'data-e="1"')}</div>`);
+  if(etape === 3) return ecran(`${logo()}<h1>Votre clé de secours</h1><p class="sous">Elle remplace le code s’il est oublié. Notez-la sur papier et rangez-la en lieu sûr, <strong>hors du téléphone</strong>. Elle ne sera plus jamais affichée.</p>
+    <div class="cle-secours" id="cle-secours">${esc(assistant.secours)}</div>
+    <div class="boutons" style="justify-content:center;margin:10px 0 16px">${btn('copier-secours', 'Copier', 'btn petit')}</div>
+    <label class="case-ligne"><input type="checkbox" id="note-ok"><span>Je l’ai notée. Sans le code ni cette clé, les données sont définitivement perdues.</span></label>
+    ${btn('acc-suite', 'Continuer', 'btn p plein', 'data-e="4" id="btn-secours" disabled')}`);
+  if(etape === 4) return ecran(`${logo()}<h1>Votre cabinet</h1><p class="sous">Modifiable à tout moment dans Réglages.</p>
+    <form id="f-cab" novalidate>${champHtml({n:'praticien', l:'Prénom et nom', aide:'pour les messages aux patients', attrs:'autocomplete="name"'})}
+    <div class="deux">${champHtml({n:'tarif', l:'Tarif d’une séance', t:'montant', v:'60'})}${champHtml({n:'duree', l:'Durée (minutes)', t:'nombre', v:'50'})}</div>
+    ${champHtml({n:'exemples', l:'Ajouter des patients d’exemple pour découvrir l’appli', t:'case', aide:'faciles à retirer ensuite (Réglages → Données)'})}
+    <p class="message-erreur" id="err" hidden></p><button class="btn p plein" type="submit" id="btn-creer">Créer mon cabinet</button></form>`);
+}
+async function terminerAccueil(f){
+  const v = lireForm(f), b = $('#btn-creer'); b.disabled = true; b.textContent = 'Chiffrement…';
+  try {
+    DB = vierge();
+    Object.assign(DB.reglages, {praticien:txt(v.praticien), tarif:nombre(v.tarif, 60) || 60, duree:Math.round(nombre(v.duree, 50)) || 50});
+    DB = normaliser(DB);
+    if(v.exemples) remplirExemples();
+    await creerCoffre(assistant.code, assistant.secours, DB);
+    assistant = {}; demanderPersistance(); ouvrirAppli();
+  } catch(e){ b.disabled = false; b.textContent = 'Créer mon cabinet'; const er = $('#err'); er.textContent = 'Impossible de créer le coffre : ' + (e && e.message || e); er.hidden = false; }
+}
+
+/* Verrou : essais ratés comptés sur l'appareil ; après 5, attente qui double (30 s, 1 min, 2 min… 15 min au plus) */
+const CLE_ESSAIS = 'cabinet.essais';
+const lireEssais = () => { try { return JSON.parse(localStorage.getItem(CLE_ESSAIS)) || {n:0, jusqua:0}; } catch(e){ return {n:0, jusqua:0}; } };
+const ecrireEssais = x => { try { localStorage.setItem(CLE_ESSAIS, JSON.stringify(x)); } catch(e){ /* rien */ } };
+function ecranVerrou(parSecours = false){
+  etat = 'verrou';
+  ecran(`${logo()}<h1>Cabinet</h1><p class="sous">${parSecours ? 'Saisissez votre clé de secours : vous choisirez ensuite un nouveau code.' : 'Verrouillé'}</p>
+    <form id="f-verrou" novalidate>${parSecours ? champHtml({n:'secret', l:'Clé de secours', attrs:'autofocus autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"'})
+      : champHtml({n:'secret', l:'Code', t:'mdp', attrs:'autofocus'})}
+    <p class="message-erreur" id="err" role="alert" hidden></p><button class="btn p plein" type="submit" id="btn-ouvrir">${parSecours ? 'Continuer' : 'Déverrouiller'}</button></form>
+    <div class="boutons" style="justify-content:center;margin-top:12px">${parSecours ? btn('verrou-code', 'Revenir au code', 'btn f') : btn('verrou-secours', 'Code oublié ?', 'btn f')}</div>`);
+  const e = $('#f-verrou input'); if(e && !('ontouchstart' in window)) e.focus();
+}
+async function deverrouiller(f, parSecours){
+  const er = $('#err'), b = $('#btn-ouvrir'), secret = lireForm(f).secret, es = lireEssais();
+  if(es.jusqua > Date.now()){ er.textContent = 'Trop d’essais : réessayez dans ' + Math.ceil((es.jusqua - Date.now()) / 1000) + ' s.'; er.hidden = false; return; }
+  if(!secret){ return; }
+  b.disabled = true; b.textContent = 'Ouverture…';
+  let r = null;
+  try { const c = await lireCoffre(); if(!verifCoffre(c)) throw new Error('coffre illisible'); coffre = c; r = await ouvrirCoffre(c, secret, parSecours); }
+  catch(e){ b.disabled = false; b.textContent = 'Déverrouiller'; er.textContent = 'Données illisibles : ' + (e && e.message || e); er.hidden = false; return; }
+  if(!r){
+    es.n++; if(es.n >= 5) es.jusqua = Date.now() + Math.min(15 * 60, 30 * 2 ** (es.n - 5)) * 1000; ecrireEssais(es);
+    b.disabled = false; b.textContent = parSecours ? 'Continuer' : 'Déverrouiller';
+    er.textContent = (parSecours ? 'Clé de secours incorrecte.' : 'Code incorrect.') + (es.n >= 5 ? ' Attente avant le prochain essai.' : ''); er.hidden = false;
+    $('input', f).value = ''; return;
+  }
+  ecrireEssais({n:0, jusqua:0});
+  cleDonnees = r.cle; DB = normaliser(r.donnees);
+  if(parSecours){ const brut = r.brut; return nouveauCodeApresSecours(brut); }
+  r.brut.fill(0); demanderPersistance(); ouvrirAppli();
+}
+function nouveauCodeApresSecours(brut){
+  ecran(`${logo()}<h1>Nouveau code</h1><p class="sous">Clé de secours acceptée. Choisissez le nouveau code d’ouverture.</p>
+    <form id="f-nouveau" novalidate>${champHtml({n:'code', l:'Nouveau code', t:'mdp', attrs:'autofocus'})}${champHtml({n:'code2', l:'Le même, encore une fois', t:'mdp'})}
+    <p class="message-erreur" id="err" hidden></p><button class="btn p plein" type="submit">Enregistrer et ouvrir</button></form>`);
+  $('#f-nouveau').addEventListener('submit', async e => {
+    e.preventDefault(); const v = lireForm(e.target), er = $('#err');
+    const pb = verifNouveauCode(v.code, v.code2); if(pb){ er.textContent = pb; er.hidden = false; return; }
+    await changerCode(brut, v.code); brut.fill(0); ouvrirAppli(); toast('Nouveau code enregistré');
+  });
+}
+const verifNouveauCode = (a, b) => String(a || '').length < 6 ? 'Le code doit faire 6 caractères au moins.' : a !== b ? 'Les deux saisies sont différentes.' : '';
+async function verrouiller(){
+  if(etat !== 'ouvert') return;
+  await ecrireMaintenant();
+  cleDonnees = null; DB = vierge(); etat = 'verrou';
+  ecranVerrou();
+}
+/* Verrouillage automatique : après N minutes sans toucher l'écran, ou en revenant dans l'appli après N minutes
+   (0 = dès qu'on la quitte) */
+let derniereActivite = Date.now(), cacheeDepuis = 0;
+['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(ev => window.addEventListener(ev, () => { derniereActivite = Date.now(); }, {passive:true, capture:true}));
+setInterval(() => { const m = DB.reglages.verrou; if(etat === 'ouvert' && m && Date.now() - derniereActivite > m * 60000) verrouiller(); }, 10000);
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'hidden'){ cacheeDepuis = Date.now(); ecrireMaintenant(); if(etat === 'ouvert' && DB.reglages.verrou === 0) verrouiller(); }
+  else if(etat === 'ouvert' && cacheeDepuis && Date.now() - cacheeDepuis > DB.reglages.verrou * 60000) verrouiller();
+});
+window.addEventListener('pagehide', () => { ecrireMaintenant(); });
+function demanderPersistance(){ try { if(navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch(e){ /* rien */ } }
+
+/* ==========================================================================
+   H. CADRE ET ROUTEUR — barre du haut, page, onglets du bas
+   ========================================================================== */
+const ONGLETS = [['aujourdhui', 'Aujourd’hui', 'maison'], ['planning', 'Planning', 'calendrier'], ['patients', 'Patients', 'personnes'], ['finances', 'Finances', 'euro'], ['reglages', 'Réglages', 'reglages']];
+function lireRoute(){ const [nom, id] = (location.hash.replace(/^#\/?/, '') || 'aujourdhui').split('/'); return {nom:ROUTES[nom] ? nom : 'aujourdhui', id:id ? decodeURIComponent(id) : ''}; }
+function ouvrirAppli(){
+  etat = 'ouvert'; derniereActivite = Date.now();
+  $('#racine').innerHTML = `<header class="barre" id="barre"></header><main id="vue" tabindex="-1"></main><nav class="onglets" id="onglets" aria-label="Navigation"></nav>`;
+  rendre();
+}
+let routeAvant = '';
+function rendre(){
+  if(etat !== 'ouvert') return;
+  const r = lireRoute(), cle = r.nom + '/' + r.id, memePage = cle === routeAvant, y = window.scrollY;
+  const page = ROUTES[r.nom](r.id);
+  const droite = (page.plus ? `<button type="button" class="rond" data-action="${page.plus}" aria-label="${esc(page.plusLabel || 'Ajouter')}">${ico('plus', 19)}</button>` : '') +
+    `<button type="button" class="rond${DB.reglages.discret ? ' on' : ''}" data-action="discret" aria-pressed="${DB.reglages.discret}" aria-label="${DB.reglages.discret ? 'Afficher les noms' : 'Mode discret : initiales seulement'}" title="Mode discret">${ico(DB.reglages.discret ? 'oeilBarre' : 'oeil', 18)}</button>` +
+    `<button type="button" class="rond" data-action="verrouiller" aria-label="Verrouiller" title="Verrouiller">${ico('cadenas', 18)}</button>`;
+  $('#barre').innerHTML = (page.retour ? `<a class="rond retour" href="${page.retour}" aria-label="Retour">${ico('chevronG', 20)}</a>` : '') + `<h1>${esc(page.titre)}</h1>` + droite;
+  $('#vue').innerHTML = page.html;
+  const nb = {aujourdhui:aPointer().length, finances:new Set(impayes().map(x => x.patient)).size};
+  $('#onglets').innerHTML = ONGLETS.map(([k, t, i]) => `<a href="#/${k}" class="${(r.nom === k || (k === 'patients' && r.nom === 'patient')) ? 'on' : ''}"${r.nom === k ? ' aria-current="page"' : ''}><span class="ic">${ico(i, 22)}${nb[k] ? `<span class="pastille">${nb[k]}</span>` : ''}</span>${t}</a>`).join('');
+  document.title = page.titre + ' · Cabinet';
+  if(page.apres) page.apres();
+  window.scrollTo(0, memePage ? y : 0);
+  routeAvant = cle;
+}
+window.addEventListener('hashchange', () => { fermer(true); rendre(); });
+
+/* ==========================================================================
+   I. PAGES
+   ========================================================================== */
+/* --- Aujourd'hui : la journée, ce qui reste à pointer ou à encaisser, les rappels --- */
+function pageAujourdhui(){
+  const auj = aujourdhui(), h = new Date().getHours(), prenom = (DB.reglages.praticien || '').split(' ')[0];
+  const duJour = rdvDu(auj), seances = duJour.filter(r => r.patient && actifs(r)), pointer = aPointer().filter(r => r.date < auj);
+  const imp = impayes(), demain = rdvDu(decale(auj, 1)).filter(r => r.patient && actifs(r)), ym = moisDe(auj), fixes = fixesASaisir(ym);
+  const enc = somme(encaissements(ym + '-01', auj)), honorees = DB.rdv.filter(r => moisDe(r.date) === ym && r.date <= auj && r.statut === 'honore').length;
+  let html = `<div class="titre-page"><h2>${h < 18 ? 'Bonjour' : 'Bonsoir'}${prenom ? ' ' + esc(prenom) : ''}</h2><p>${esc(dateLongueAn(auj))}</p></div>` + bandeauInstall();
+  if(sauvegardeEnRetard()) html += `<div class="bandeau">${ico('telecharger', 18)}<div class="txt"><strong>Sauvegarde à faire</strong>${DB.reglages.derniereSauvegarde ? 'Dernière sauvegarde ' + esc(ilYA(DB.reglages.derniereSauvegarde.slice(0, 10))) + '.' : 'Aucune sauvegarde pour l’instant.'} En cas de perte ou de panne du téléphone, c’est la seule copie.</div>${btn('sauvegarder', 'Sauvegarder', 'btn petit')}</div>`;
+  if(fixes.length) html += `<div class="bandeau bleu">${ico('euro', 18)}<div class="txt"><strong>${pluriel(fixes.length, 'charge fixe')} à enregistrer</strong>${fixes.map(f => esc(f.libelle) + ' (' + eur(f.montant) + ')').join(', ')}</div>${btn('aller', 'Voir', 'btn petit', 'data-route="finances"')}</div>`;
+  if(!DB.patients.length) html += `<div class="carte">${vide('<strong>Bienvenue !</strong><br>Commencez par ajouter un patient, puis ses rendez-vous.', btn('patient-nouveau', ico('plus', 16) + 'Ajouter un patient', 'btn p') + btn('exemples', 'Voir avec des exemples', 'btn'))}</div>`;
+  html += `<div class="section-titre">Aujourd’hui · ${pluriel(seances.length, 'séance')}<span class="droite">${btn('rdv-nouveau', ico('plus', 15) + 'Rendez-vous', 'btn f petit', `data-date="${auj}"`)}</span></div>`;
+  html += duJour.length ? duJour.map(r => carteRdv(r, {actions:true})).join('') : `<div class="carte">${vide('Aucun rendez-vous aujourd’hui.')}</div>`;
+  if(pointer.length) html += `<div class="section-titre">À pointer · ${pointer.length}<span class="droite faible" style="font-size:12.5px">séances passées sans statut</span></div>` + pointer.slice(0, 10).map(r => carteRdv(r, {actions:true, date:true})).join('') +
+    (pointer.length > 10 ? `<p class="aide">… et ${pointer.length - 10} autres, dans le Planning.</p>` : '');
+  if(demain.length) html += `<div class="section-titre">Demain</div><div class="carte" style="padding:12px 14px">${pluriel(demain.length, 'séance')}, de ${demain[0].heure} à ${finRdv(demain[demain.length - 1])}. ${btn('plan-jour', 'Voir', 'btn f petit', `data-j="${decale(auj, 1)}"`)}</div>`;
+  html += `<div class="section-titre">${esc(nomMois(ym))}</div><div class="grille">
+    <div class="chiffre"><div class="lib">${ico('encaisser', 15)}Encaissé</div><div class="val">${eurRond(enc)}</div><div class="note">${pluriel(honorees, 'séance honorée', 'séances honorées')}</div></div>
+    <button type="button" class="chiffre${imp.length ? ' att' : ''}" data-action="aller" data-route="finances" style="text-align:left"><div class="lib">${ico('alerte', 15)}Impayés</div><div class="val">${eurRond(totalImpayes())}</div><div class="note">${imp.length ? pluriel(new Set(imp.map(x => x.patient)).size, 'patient') : 'rien en attente'}</div></button></div>`;
+  return {titre:'Aujourd’hui', html, plus:'rdv-nouveau', plusLabel:'Nouveau rendez-vous'};
+}
+
+/* --- Planning : jour (avec les créneaux libres) ou semaine (liste sur téléphone, grille horaire sur grand écran) --- */
+const CLE_PLAN = 'cabinet.planning';
+let planJour = aujourdhui(), planVue = (() => { try { return localStorage.getItem(CLE_PLAN) === 'semaine' ? 'semaine' : 'jour'; } catch(e){ return 'jour'; } })();
+function creneauxLibres(j){
+  const r = DB.reglages; if(!r.jours.includes(versDate(j).getDay())) return [];
+  const pris = rdvDu(j).filter(actifs).map(x => [minutes(x.heure), minutes(x.heure) + x.duree]).sort((a, b) => a[0] - b[0]);
+  let t = minutes(r.debut); const fin = minutes(r.fin), l = [];
+  if(j === aujourdhui()){ const n = minutes(heureMaintenant()); t = Math.max(t, Math.ceil(n / 5) * 5); }
+  for(const [a, b] of pris){ if(a - t >= 30) l.push([t, a]); t = Math.max(t, b); }
+  if(fin - t >= 30) l.push([t, fin]);
+  return l;
+}
+function pagePlanning(){
+  const lundi = lundiDe(planJour), auj = aujourdhui(), jours = Array.from({length:7}, (_, i) => decale(lundi, i));
+  const fin = jours[6], titre = moisDe(lundi) === moisDe(fin) ? nomMois(moisDe(lundi)) : majuscule(F.moisCourt.format(versDate(lundi))) + ' – ' + F.mois.format(versDate(fin));
+  const seg = (v, t) => `<button type="button" class="${planVue === v ? 'on' : ''}" data-action="plan-vue" data-v="${v}" aria-pressed="${planVue === v}">${t}</button>`;
+  let html = `<div class="nav-periode"><button type="button" class="rond" data-action="plan-prec" aria-label="Semaine précédente">${ico('chevronG', 18)}</button><strong>${esc(titre)}</strong>
+    <button type="button" class="rond" data-action="plan-suiv" aria-label="Semaine suivante">${ico('chevronD', 18)}</button>${lundi !== lundiDe(auj) || (planVue === 'jour' && planJour !== auj) ? btn('plan-auj', 'Aujourd’hui', 'btn f petit') : ''}
+    <div class="segment" role="group" aria-label="Affichage">${seg('jour', 'Jour')}${seg('semaine', 'Semaine')}</div></div>`;
+  if(planVue === 'jour'){
+    html += `<div class="semaine-bande">${jours.map(j => { const n = rdvDu(j).filter(r => actifs(r)).length, d = versDate(j);
+      return `<button type="button" class="${j === planJour ? 'on' : ''}${j === auj ? ' auj' : ''}" data-action="plan-jour" data-j="${j}" aria-label="${esc(dateLongue(j))}${n ? ', ' + pluriel(n, 'rendez-vous', 'rendez-vous') : ''}" aria-pressed="${j === planJour}">
+        ${esc(F.jourSem.format(d).replace('.', ''))}<b>${d.getDate()}</b><span class="pts">${'<i></i>'.repeat(Math.min(n, 4))}</span></button>`; }).join('')}</div>`;
+    const l = rdvDu(planJour), libres = creneauxLibres(planJour), elts = [...l.map(r => ({t:minutes(r.heure), h:carteRdv(r, {actions:true})})),
+      ...libres.map(([a, b]) => ({t:a, h:`<button type="button" class="libre" data-action="rdv-nouveau" data-date="${planJour}" data-heure="${versHeure(a)}">${ico('plus', 15)}<span><strong>Libre</strong> ${versHeure(a)} – ${versHeure(b)}</span></button>`}))].sort((a, b) => a.t - b.t);
+    html += `<div class="section-titre">${esc(dateLongue(planJour))} · ${pluriel(l.filter(r => r.patient && actifs(r)).length, 'séance')}</div>` +
+      (elts.length ? elts.map(x => x.h).join('') : `<div class="carte">${vide(DB.reglages.jours.includes(versDate(planJour).getDay()) ? 'Journée complète.' : 'Jour sans consultation.')}</div>`) +
+      `<div class="boutons" style="margin-top:12px">${btn('rdv-nouveau', ico('plus', 16) + 'Rendez-vous', 'btn p', `data-date="${planJour}"`)}${btn('bloc-nouveau', 'Bloquer un créneau', 'btn', `data-date="${planJour}"`)}</div>`;
+  } else {
+    const avecDim = DB.reglages.jours.includes(0) || rdvDu(jours[6]).length, montres = avecDim ? jours : jours.slice(0, 6);
+    html += `<div class="semaine-liste">${montres.map(j => { const l = rdvDu(j);
+      return `<div class="jour-semaine"><h4 class="${j === auj ? 'auj' : ''}">${esc(dateLongue(j))}<span class="faible" style="font-weight:500">${l.filter(r => r.patient && actifs(r)).length ? '· ' + pluriel(l.filter(r => r.patient && actifs(r)).length, 'séance') : ''}</span>
+        ${btn('plan-jour', 'Ouvrir', 'btn f petit', `data-j="${j}" style="margin-left:auto"`)}</h4>${l.length ? l.map(r => carteRdv(r)).join('') : '<p class="faible" style="margin:0 2px 6px;font-size:13.5px">—</p>'}</div>`; }).join('')}</div>`;
+    /* grille horaire (grand écran) */
+    const tous = montres.flatMap(rdvDu), h0 = Math.floor(Math.min(minutes(DB.reglages.debut), ...tous.map(r => minutes(r.heure))) / 60), h1 = Math.ceil(Math.max(minutes(DB.reglages.fin), ...tous.map(r => minutes(r.heure) + r.duree)) / 60), PX = 52;
+    const haut = (h1 - h0) * PX;
+    html += `<div class="grille-h" style="--n:${montres.length};--h:${PX}px"><div class="coin"></div>${montres.map(j => `<div class="entete${j === auj ? ' auj' : ''}">${esc(majuscule(F.jourSem.format(versDate(j)).replace('.', '')))} ${versDate(j).getDate()}</div>`).join('')}
+      <div class="heures" style="height:${haut}px">${Array.from({length:h1 - h0 + 1}, (_, i) => `<span style="top:${i * PX}px">${pad(h0 + i)}:00</span>`).join('')}</div>
+      ${montres.map(j => `<div class="col" style="height:${haut}px">${rdvDu(j).map(r => { const top = (minutes(r.heure) - h0 * 60) / 60 * PX, ht = Math.max(18, r.duree / 60 * PX - 2);
+        const c = r.patient ? `var(--${STATUTS_RDV[r.statut][1]})` : 'var(--gris)';
+        return `<button type="button" class="bloc${r.statut === 'annule' ? ' annule' : ''}" data-action="rdv-ouvrir" data-id="${r.id}" style="top:${top}px;height:${ht}px;--c:${c}"><b>${esc(titreRdv(r))}</b>${r.heure}–${finRdv(r)}</button>`; }).join('')}</div>`).join('')}</div>`;
+  }
+  return {titre:'Planning', html, plus:'rdv-nouveau', plusLabel:'Nouveau rendez-vous'};
+}
+
+/* --- Patients : en suivi, en attente (liste d'attente), terminés ; recherche --- */
+let ongletPatients = 'actif', recherchePatients = '';
+const trierPatients = l => l.slice().sort((a, b) => (a.nom + ' ' + a.prenom).localeCompare(b.nom + ' ' + b.prenom, 'fr'));
+function lignePatient(p){
+  const pr = prochains(p.id)[0], rs = somme(seancesDe(p.id).map(reste)), der = seancesDe(p.id).find(r => r.statut === 'honore');
+  const sous = p.statut === 'attente' ? 'En attente' + (p.demande ? ' depuis le ' + dateCourte(p.demande) : '') + (p.motif && !DB.reglages.discret ? ' · ' + p.motif : '')
+    : pr ? 'Prochain : ' + dateCourte(pr.date) + ' à ' + pr.heure : der ? 'Dernière séance : ' + dateCourte(der.date) : 'Aucune séance';
+  return `<li><a class="ligne-btn" href="#/patient/${encodeURIComponent(p.id)}">${avatar(p)}<span class="corps"><span class="t" style="display:block">${esc(nomAff(p))}</span><span class="s" style="display:block">${esc(sous)}</span></span>
+    ${rs ? `<span class="droite">${puce(eur(rs), 'orange')}</span>` : ''}${ico('chevronD', 16)}</a></li>`;
+}
+function listePatientsHtml(){
+  const q = norm(recherchePatients.trim());
+  const l = trierPatients(DB.patients.filter(p => q ? norm(nomComplet(p) + ' ' + p.telephone + ' ' + p.email).includes(q) : p.statut === ongletPatients));
+  return l.length ? `<ul class="liste">${l.map(lignePatient).join('')}</ul>` : vide(q ? 'Aucun patient ne correspond.' : {actif:'Aucun patient en suivi.', attente:'Liste d’attente vide.', termine:'Aucun suivi terminé.'}[ongletPatients],
+    q ? '' : btn('patient-nouveau', ico('plus', 16) + 'Ajouter un patient', 'btn p', `data-statut="${ongletPatients}"`));
+}
+function pagePatients(){
+  const n = k => DB.patients.filter(p => p.statut === k).length;
+  const seg = STATUTS_PATIENT.map(([k, t]) => `<button type="button" class="${ongletPatients === k ? 'on' : ''}" data-action="patients-onglet" data-v="${k}" aria-pressed="${ongletPatients === k}">${{actif:'En suivi', attente:'En attente', termine:'Terminés'}[k]} ${n(k)}</button>`).join('');
+  const html = `<label class="recherche"><span class="sr">Rechercher un patient</span>${ico('recherche', 17)}<input class="saisie" id="cherche-patient" type="search" placeholder="Rechercher un patient…" value="${esc(recherchePatients)}" autocomplete="off"></label>
+    <div class="segment" role="group" aria-label="Patients" style="margin-bottom:12px;${recherchePatients ? 'opacity:.4' : ''}">${seg}</div>
+    <div class="carte" id="liste-patients" style="padding:4px 14px">${listePatientsHtml()}</div>`;
+  return {titre:'Patients', html, plus:'patient-nouveau', plusLabel:'Nouveau patient', apres:() => {
+    $('#cherche-patient').addEventListener('input', e => { recherchePatients = e.target.value; $('#liste-patients').innerHTML = listePatientsHtml(); });
+  }};
+}
+
+/* --- Fiche patient --- */
+function age(naissance){ if(!naissance) return ''; const n = versDate(naissance), a = new Date(); let x = a.getFullYear() - n.getFullYear(); if(a.getMonth() < n.getMonth() || (a.getMonth() === n.getMonth() && a.getDate() < n.getDate())) x--; return x + ' ans'; }
+function pagePatient(id){
+  const p = unPatient(id);
+  if(!p) return {titre:'Patient', retour:'#/patients', html:`<div class="carte">${vide('Ce patient n’existe plus.', btn('aller', 'Retour aux patients', 'btn', 'data-route="patients"'))}</div>`};
+  const st = STATUTS_PATIENT.find(s => s[0] === p.statut), seances = seancesDe(p.id), pr = prochains(p.id), notes = notesDe(p.id);
+  const imp = seances.filter(r => r.date <= aujourdhui() && reste(r) > 0), totalImp = somme(imp.map(reste)), honorees = seances.filter(r => r.statut === 'honore');
+  const sms = p.telephone ? lienSms(p.telephone, '') : '', disc = DB.reglages.discret;
+  let html = `<div class="tete-patient">${avatar(p)}<div style="min-width:0"><h2>${esc(nomAff(p))}</h2><div class="boutons" style="gap:6px;margin-top:4px">${puce(st[1], st[2])}${p.naissance && !disc ? `<span class="faible" style="font-size:13px">${esc(age(p.naissance))}</span>` : ''}</div></div></div>
+    <div class="actions-rapides">
+      <a href="${p.telephone ? esc(lienTel(p.telephone)) : '#'}" class="${p.telephone ? '' : 'off'}">${ico('telephone', 20)}Appeler</a>
+      <a href="${esc(sms) || '#'}" class="${p.telephone ? '' : 'off'}">${ico('bulle', 20)}Message</a>
+      <button type="button" data-action="rdv-nouveau" data-patient="${esc(p.id)}">${ico('calendrier', 20)}Rendez-vous</button>
+      <button type="button" data-action="note-nouvelle" data-patient="${esc(p.id)}">${ico('note', 20)}Note</button></div>`;
+  if(totalImp) html += `<div class="bandeau">${ico('encaisser', 18)}<div class="txt"><strong>Reste à régler : ${eur(totalImp)}</strong>${pluriel(imp.length, 'séance')} (${imp.slice(0, 4).map(r => dateCourte(r.date)).join(', ')}${imp.length > 4 ? '…' : ''})</div>${btn('encaisser-plusieurs', 'Encaisser', 'btn petit', `data-patient="${esc(p.id)}"`)}</div>`;
+  html += `<div class="section-titre">Prochains rendez-vous<span class="droite">${btn('rdv-nouveau', ico('plus', 15) + 'Programmer', 'btn f petit', `data-patient="${esc(p.id)}"`)}</span></div>` +
+    (pr.length ? pr.slice(0, 4).map(r => carteRdv(r, {date:true, titreDate:true})).join('') + (pr.length > 4 ? `<p class="aide">… et ${pr.length - 4} autres.</p>` : '') : `<div class="carte">${vide('Aucun rendez-vous à venir.')}</div>`);
+  html += `<div class="section-titre">Notes de séance · ${notes.length}<span class="droite">${btn('note-nouvelle', ico('plus', 15) + 'Note', 'btn f petit', `data-patient="${esc(p.id)}"`)}</span></div>
+    <div class="carte" style="padding:4px 14px">${notes.length ? `<ul class="liste">${notes.slice(0, nbNotes(p.id)).map(n => `<li><button type="button" class="ligne-btn" data-action="note-ouvrir" data-id="${n.id}">
+      <span class="corps"><span class="t" style="display:block">${esc(dateLongueAn(n.date))}</span><span class="apercu-note">${disc ? 'Contenu masqué (mode discret)' : esc(n.texte.slice(0, 220)) || '<em>Note vide</em>'}</span></span>${ico('chevronD', 16)}</button></li>`).join('')}</ul>
+      ${notes.length > nbNotes(p.id) ? `<div style="padding:8px 0 10px">${btn('notes-plus', 'Afficher les notes plus anciennes', 'btn plein', `data-patient="${esc(p.id)}"`)}</div>` : ''}` : vide('Aucune note pour l’instant.')}</div>`;
+  html += `<div class="section-titre">Séances · ${pluriel(honorees.length, 'honorée')}</div><div class="carte" style="padding:4px 14px">${seances.filter(r => r.date <= aujourdhui()).length ? `<ul class="liste">${seances.filter(r => r.date <= aujourdhui()).slice(0, 12).map(r =>
+    `<li><button type="button" class="ligne-btn" data-action="rdv-ouvrir" data-id="${r.id}"><span class="corps"><span class="t" style="display:block">${esc(dateCourte(r.date))} · ${r.heure}</span><span class="s" style="display:flex;gap:6px;flex-wrap:wrap;white-space:normal">${puceStatut(r)}${pucePaiement(r)}</span></span>
+      <span class="droite">${facturable(r) ? eur(r.montant) : ''}</span></button></li>`).join('')}</ul>` : vide('Aucune séance passée.')}</div>`;
+  const info = [['Motif', disc ? '' : p.motif], ['Adressé par', p.adressePar], ['Médecin traitant', p.medecin], ['Début du suivi', p.debut ? dateMoyenne(p.debut) : honorees.length ? dateMoyenne(honorees[honorees.length - 1].date) : ''],
+    ['Demande', p.statut === 'attente' && p.demande ? dateMoyenne(p.demande) : ''], ['Naissance', p.naissance && !disc ? dateMoyenne(p.naissance) : ''],
+    ['Téléphone', disc ? '' : p.telephone], ['E-mail', disc ? '' : p.email], ['Adresse', disc ? '' : p.adresse],
+    ['Tarif', eur(tarifDe(p)) + (p.tarif == null ? ' (habituel)' : '')], ['Durée', dureeDe(p) + ' min'], ['Infos pratiques', disc ? '' : p.infos]].filter(x => x[1]);
+  html += `<div class="section-titre">Suivi et coordonnées<span class="droite">${btn('patient-modifier', ico('crayon', 15) + 'Modifier', 'btn f petit', `data-id="${esc(p.id)}"`)}</span></div>
+    <div class="carte"><dl class="infos">${info.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v).replace(/\n/g, '<br>')}</dd>`).join('')}</dl>
+    ${p.email && !disc ? `<div class="boutons" style="margin-top:12px"><a class="btn petit" href="${esc(lienMail(p.email, '', ''))}">${ico('courriel', 15)}Écrire un e-mail</a></div>` : ''}</div>
+    <div class="boutons" style="margin:6px 0 4px">${p.statut !== 'actif' ? btn('patient-statut', p.statut === 'attente' ? 'Commencer le suivi' : 'Reprendre le suivi', 'btn', `data-id="${esc(p.id)}" data-v="actif"`) : ''}
+      ${p.statut !== 'termine' ? btn('patient-statut', 'Terminer le suivi', 'btn', `data-id="${esc(p.id)}" data-v="termine"`) : ''}${p.statut === 'actif' ? btn('patient-statut', 'Mettre en attente', 'btn', `data-id="${esc(p.id)}" data-v="attente"`) : ''}
+      ${btn('patient-suppr', ico('corbeille', 15) + 'Supprimer', 'btn danger', `data-id="${esc(p.id)}"`)}</div>`;
+  return {titre:'Fiche patient', retour:'#/patients', html};
+}
+const notesMontrees = {};
+const nbNotes = pid => notesMontrees[pid] || 5;
+
+/* --- Formulaires : patient --- */
+function formPatient(p0 = {}, {puis = null} = {}){
+  const ex = p0.id ? unPatient(p0.id) : null, p = ex || p0;
+  formulaire({titre:ex ? 'Modifier le patient' : 'Nouveau patient', ok:ex ? 'Enregistrer' : 'Ajouter', champs:[
+    {n:'prenom', l:'Prénom', v:p.prenom, demi:true, attrs:'autocomplete="off" autofocus'}, {n:'nom', l:'Nom', v:p.nom, demi:true, attrs:'autocomplete="off"'},
+    {n:'telephone', l:'Téléphone', t:'tel', v:p.telephone, demi:true}, {n:'naissance', l:'Naissance', t:'date', v:p.naissance, demi:true},
+    {n:'email', l:'E-mail', t:'email', v:p.email},
+    {n:'statut', l:'Statut', t:'select', o:STATUTS_PATIENT.map(([v, t]) => ({v, t})), v:p.statut || 'actif', demi:true}, {n:'demande', l:'Date de la demande', t:'date', v:p.demande || (ex ? '' : aujourdhui()), demi:true},
+    {n:'motif', l:'Motif de consultation', t:'zone', lignes:2, v:p.motif},
+    {n:'adressePar', l:'Adressé par', v:p.adressePar, aide:'médecin, collègue, bouche-à-oreille…', demi:true}, {n:'medecin', l:'Médecin traitant', v:p.medecin, demi:true},
+    {n:'debut', l:'Début du suivi', t:'date', v:p.debut, aide:'vide = première séance', demi:true}, {n:'adresse', l:'Adresse', v:p.adresse, demi:true},
+    {n:'tarif', l:'Tarif', t:'montant', v:p.tarif ?? '', aide:'vide = ' + eur(DB.reglages.tarif), demi:true}, {n:'duree', l:'Durée (min)', t:'nombre', v:p.duree || '', aide:'vide = ' + DB.reglages.duree, demi:true},
+    {n:'infos', l:'Infos pratiques', t:'zone', lignes:2, v:p.infos, aide:'mode de paiement, disponibilités…'}
+  ], onOk:v => {
+    if(!txt(v.prenom) && !txt(v.nom)) return 'Indiquez au moins un prénom ou un nom.';
+    const champs = {prenom:txt(v.prenom), nom:txt(v.nom), telephone:txt(v.telephone), naissance:dateValide(v.naissance), email:txt(v.email), statut:v.statut, demande:dateValide(v.demande),
+      motif:txt(v.motif), adressePar:txt(v.adressePar), medecin:txt(v.medecin), debut:dateValide(v.debut), adresse:txt(v.adresse),
+      tarif:txt(v.tarif) === '' ? null : nombre(v.tarif, null), duree:Math.round(nombre(v.duree, 0)) || null, infos:txt(v.infos), modif:maintenant()};
+    let cible;
+    if(ex){ Object.assign(ex, champs); cible = ex; }
+    else { cible = {id:uid(), ...champs, couleur:DB.patients.length % 6, cree:maintenant()}; DB.patients.push(cible); }
+    DB = normaliser(DB); sauver(); fermer(true);
+    if(puis) return puis(cible.id);
+    if(!ex) location.hash = '#/patient/' + encodeURIComponent(cible.id); else rendre();
+    toast(ex ? 'Patient enregistré' : 'Patient ajouté');
+  }});
+}
+
+/* --- Rendez-vous : séance ou créneau bloqué ; répétition chaque semaine ou toutes les 2 semaines --- */
+const optionsPatients = sel => [{v:'', t:'— Choisir —'}, ...trierPatients(DB.patients.filter(p => p.statut !== 'termine' || p.id === sel)).map(p => ({v:p.id, t:nomAff(p)})), {v:'__nouveau', t:'+ Nouveau patient…'}];
+function formRdv(r0 = {}, {bloque = false} = {}){
+  const ex = r0.id ? unRdv(r0.id) : null, r = ex || r0, estBloque = ex ? !ex.patient : bloque, p = unPatient(r.patient);
+  let confirmeChevauche = '';
+  const champs = estBloque ? [{n:'titre', l:'Intitulé', v:r.titre, aide:'supervision, pause, formation…', attrs:'autofocus'}] : [{n:'patient', l:'Patient', t:'select', o:optionsPatients(r.patient), v:r.patient || ''}];
+  champs.push({n:'date', l:'Date', t:'date', v:r.date || aujourdhui(), demi:true}, {n:'heure', l:'Heure', t:'heure', v:r.heure || '09:00', demi:true},
+    {n:'duree', l:'Durée (min)', t:'nombre', v:r.duree || (estBloque ? 60 : dureeDe(p)), demi:true});
+  if(!estBloque) champs.push({n:'lieu', l:'Lieu', t:'select', o:LIEUX.map(x => ({v:x, t:x})), v:r.lieu || 'Cabinet', demi:true}, {n:'montant', l:'Montant', t:'montant', v:r.montant ?? tarifDe(p)});
+  else champs.push({n:'lieu', l:'Lieu', v:r.lieu && r.lieu !== 'Cabinet' ? r.lieu : '', demi:true, aide:'facultatif'});
+  if(!ex) champs.push({n:'repete', l:'Répétition', t:'select', o:[{v:'', t:'Une seule fois'}, {v:'7', t:'Chaque semaine'}, {v:'14', t:'Toutes les 2 semaines'}], v:'', demi:true},
+    {n:'nombre', l:'Nombre de séances', t:'nombre', v:'10', demi:true, aide:'si répété'});
+  else if(ex.serie) champs.push({n:'suite', l:'Appliquer aussi aux rendez-vous suivants de la série', t:'case', aide:'heure, durée, lieu' + (estBloque ? '' : ', montant') + ' (pas la date)'});
+  champs.push({n:'note', l:'Remarque', v:r.note, aide:'visible dans le planning, ex. « 1re séance »'});
+  formulaire({titre:ex ? (estBloque ? 'Modifier le créneau' : 'Modifier le rendez-vous') : (estBloque ? 'Bloquer un créneau' : 'Nouveau rendez-vous'), ok:ex ? 'Enregistrer' : 'Ajouter', champs,
+    suppr:ex ? () => supprimerRdv(ex.id) : null,
+    fermeture:ex ? () => ficheRdv(ex.id) : null,
+    apres:(v, f) => {
+      const sel = $('[name="patient"]', f); if(!sel) return;
+      sel.addEventListener('change', () => {
+        if(sel.value === '__nouveau'){ const garde = lireForm(f); fermer(true); return formPatient({}, {puis:id => formRdv({...garde, patient:id, montant:tarifDe(unPatient(id)), duree:dureeDe(unPatient(id))})}); }
+        const q = unPatient(sel.value); if(q){ $('[name="montant"]', f).value = String(tarifDe(q)).replace('.', ','); $('[name="duree"]', f).value = dureeDe(q); }
+      });
+    },
+    onOk:v => {
+      if(!estBloque && (!v.patient || v.patient === '__nouveau')) return 'Choisissez le patient.';
+      if(!dateValide(v.date) || !heureValide(v.heure)) return 'Date ou heure incomplète.';
+      const duree = Math.round(nombre(v.duree, 0)); if(duree < 5 || duree > 600) return 'Durée entre 5 et 600 minutes.';
+      const base = {patient:estBloque ? '' : v.patient, titre:estBloque ? txt(v.titre) || 'Créneau bloqué' : '', heure:v.heure, duree, lieu:estBloque ? txt(v.lieu) : v.lieu,
+        montant:estBloque ? 0 : nombre(v.montant, 0), note:txt(v.note), modif:maintenant()};
+      const pas = Number(v.repete) || 0, n = pas ? Math.min(60, Math.max(1, Math.round(nombre(v.nombre, 10)))) : 1;
+      const dates = Array.from({length:n}, (_, i) => decale(v.date, i * pas));
+      const conflits = dates.flatMap(d => chevauchements({id:ex ? ex.id : '', date:d, heure:v.heure, duree}).map(x => [d, x]));
+      const cle = JSON.stringify([dates, v.heure, duree]);
+      if(conflits.length && confirmeChevauche !== cle){ confirmeChevauche = cle; const [d, x] = conflits[0];
+        return `Chevauche « ${titreRdv(x)} » le ${dateCourte(d)} à ${x.heure}${conflits.length > 1 ? ` (et ${conflits.length - 1} autre${conflits.length > 2 ? 's' : ''})` : ''}. Appuyez de nouveau sur ${ex ? 'Enregistrer' : 'Ajouter'} pour confirmer.`; }
+      if(ex){
+        Object.assign(ex, base, {date:v.date});
+        if(v.suite && ex.serie) DB.rdv.filter(x => x.serie === ex.serie && x.id !== ex.id && x.date > ex.date && x.statut === 'prevu').forEach(x => Object.assign(x, {heure:base.heure, duree, lieu:base.lieu, montant:base.montant, modif:base.modif}));
+      } else {
+        const serie = n > 1 ? uid() : '';
+        dates.forEach(d => DB.rdv.push({id:uid(), ...base, date:d, statut:'prevu', facturer:true, regle:null, serie, cree:maintenant()}));
+      }
+      DB = normaliser(DB); sauver(); surFermeture = null; fermer(true); rendre();
+      toast(ex ? 'Rendez-vous modifié' : n > 1 ? pluriel(n, 'rendez-vous', 'rendez-vous') + ' ajoutés' : estBloque ? 'Créneau bloqué' : 'Rendez-vous ajouté');
+      if(ex) ficheRdv(ex.id);
+    }});
+}
+function ficheRdv(id){
+  const r = unRdv(id); if(!r) return;
+  const p = unPatient(r.patient), bloque = !r.patient, note = noteDuRdv(r.id);
+  const seg = Object.entries(STATUTS_RDV).map(([k, [t]]) => `<button type="button" class="${r.statut === k ? 'on' : ''}" data-action="rdv-statut" data-id="${r.id}" data-v="${k}" data-fiche="1" aria-pressed="${r.statut === k}">${t}</button>`).join('');
+  let corps = `<p style="margin:0 0 12px;color:var(--texte-doux)">${esc(dateLongueAn(r.date))} · ${r.heure} – ${finRdv(r)}${r.lieu ? ' · ' + esc(r.lieu) : ''}${r.serie ? ' · série' : ''}</p>`;
+  if(r.note) corps += `<p style="margin:-4px 0 12px">${esc(r.note)}</p>`;
+  if(!bloque){
+    corps += `<div class="segment" role="group" aria-label="Statut" style="display:flex;margin-bottom:12px">${seg.replace(/<button /g, '<button style="flex:1" ')}</div>`;
+    if(r.statut === 'absent') corps += `<label class="case-ligne"><input type="checkbox" data-action="rdv-facturer" data-id="${r.id}"${r.facturer ? ' checked' : ''}><span>Facturer cette absence (non excusée)</span></label>`;
+    corps += `<div class="carte" style="margin-bottom:12px"><dl class="infos"><dt>Montant</dt><dd>${eur(r.montant)}${facturable(r) ? '' : ' <span class="faible">(non dû)</span>'}</dd>
+      <dt>Réglé</dt><dd>${r.regle ? eur(r.regle.montant) + ' · ' + nomMode(r.regle.mode) + ' · ' + dateCourte(r.regle.date) : '—'}</dd>${reste(r) ? `<dt>Reste</dt><dd style="color:var(--orange);font-weight:650">${eur(reste(r))}</dd>` : ''}</dl>
+      <div class="boutons" style="margin-top:12px">${reste(r) ? btn('encaisser', ico('encaisser', 16) + 'Encaisser', 'btn p', `data-id="${r.id}" data-fiche="1"`) : ''}${r.regle ? btn('reglement-annuler', 'Annuler le règlement', 'btn petit', `data-id="${r.id}"`) : ''}</div></div>`;
+    corps += `<div class="carte" style="margin-bottom:12px"><h3>${ico('note', 17)}Note de séance</h3>${note ? `<p class="apercu-note" style="margin:0 0 10px">${DB.reglages.discret ? 'Contenu masqué (mode discret)' : esc(note.texte.slice(0, 200))}</p>${btn('note-ouvrir', 'Ouvrir la note', 'btn petit', `data-id="${note.id}"`)}`
+      : btn('note-nouvelle', ico('plus', 15) + 'Écrire la note', 'btn petit', `data-rdv="${r.id}"`)}</div>`;
+    if(p && p.telephone && r.statut === 'prevu' && r.date >= aujourdhui()){
+      const corpsSms = modele(DB.reglages.modeleRappel, {prenom:p.prenom || nomComplet(p), jour:jourRelatif(r.date), heure:r.heure.replace(':', 'h'), praticien:DB.reglages.praticien});
+      corps += `<div class="boutons" style="margin-bottom:8px"><a class="btn" href="${esc(lienSms(p.telephone, corpsSms))}">${ico('bulle', 16)}Envoyer un rappel par SMS</a></div>`;
+    }
+  }
+  const pied = (p ? `<a class="btn" href="#/patient/${encodeURIComponent(p.id)}">${ico('personne', 16)}Fiche patient</a>` : '') + btn('rdv-modifier', ico('crayon', 16) + 'Modifier', 'btn', `data-id="${r.id}"`) + btn('rdv-suppr', ico('corbeille', 16), 'btn danger icone', `data-id="${r.id}" aria-label="Supprimer" title="Supprimer"`);
+  ouvrir(esc(titreRdv(r)), corps, {pied});
+}
+async function supprimerRdv(id){
+  const r = unRdv(id); if(!r) return;
+  let suite = false;
+  if(r.serie && DB.rdv.some(x => x.serie === r.serie && x.date > r.date && x.statut === 'prevu')){
+    const n = DB.rdv.filter(x => x.serie === r.serie && x.date > r.date && x.statut === 'prevu').length;
+    suite = await new Promise(res => ouvrir('Supprimer', `<p style="margin:0 0 14px">Ce rendez-vous fait partie d’une série.</p>`, {fermeture:() => res(null),
+      pied:btn('s1', 'Celui-ci seulement', 'btn') + btn('s2', `Celui-ci et les ${n} suivants`, 'btn p danger'), apres:v => {
+        $('[data-action="s1"]', v).onclick = () => { surFermeture = null; fermer(true); res(false); };
+        $('[data-action="s2"]', v).onclick = () => { surFermeture = null; fermer(true); res(true); }; }}));
+    if(suite === null) return;
+  } else if(!(await confirmer({titre:'Supprimer ce rendez-vous ?', texte:esc(titreRdv(r)) + ', ' + esc(dateLongue(r.date)) + ' à ' + r.heure + '.', ok:'Supprimer', danger:true}))) return;
+  fermer(true);
+  supprimerAvecRetour(suite ? 'Rendez-vous de la série supprimés' : 'Rendez-vous supprimé', () => {
+    DB.rdv = DB.rdv.filter(x => !(x.id === r.id || (suite && x.serie === r.serie && x.date > r.date && x.statut === 'prevu')));
+  });
+}
+function changerStatut(id, statut, depuisFiche){
+  const r = unRdv(id); if(!r || !STATUTS_RDV[statut]) return;
+  if(statut === 'absent' && r.statut !== 'absent') r.facturer = DB.reglages.absenceFacturee;
+  r.statut = statut; r.modif = maintenant(); sauver(); rendre();
+  if(depuisFiche) ficheRdv(id);
+  else toast(STATUTS_RDV[statut][0] + ' : ' + titreRdv(r));
+}
+
+/* --- Encaissement : une séance, ou plusieurs d'un coup (même date, même mode) --- */
+let dernierMode = 'cb';
+function formEncaisser(id, {fiche = false} = {}){
+  const r = unRdv(id); if(!r) return;
+  formulaire({titre:'Encaisser · ' + titreRdv(r), ok:'Encaisser', avant:`<p class="aide">Séance du ${esc(dateLongue(r.date))} · reste ${eur(reste(r))}</p>`, champs:[
+    {n:'montant', l:'Montant reçu', t:'montant', v:String(reste(r)).replace('.', ','), demi:true}, {n:'date', l:'Date', t:'date', v:aujourdhui(), demi:true},
+    {n:'mode', l:'Mode de paiement', t:'select', o:MODES.map(([v, t]) => ({v, t})), v:dernierMode}],
+    fermeture:fiche ? () => ficheRdv(id) : null,
+    onOk:v => {
+      const m = nombre(v.montant, 0); if(m <= 0) return 'Montant invalide.'; if(!dateValide(v.date)) return 'Date invalide.';
+      dernierMode = v.mode;
+      r.regle = {date:v.date, mode:v.mode, montant:Math.round((regleDe(r) + m) * 100) / 100}; r.modif = maintenant();
+      sauver(); surFermeture = null; fermer(true); rendre(); toast('Encaissé : ' + eur(m));
+      if(fiche) ficheRdv(id);
+    }});
+}
+function formEncaisserPlusieurs(pid){
+  const p = unPatient(pid), l = seancesDe(pid).filter(r => r.date <= aujourdhui() && reste(r) > 0).reverse(); if(!l.length) return toast('Rien à encaisser');
+  const liste = `<ul class="liste case-liste" style="margin-bottom:12px">${l.map(r => `<li><label class="ligne-btn"><input type="checkbox" name="s-${r.id}" checked><span class="corps"><span class="t" style="display:block">${esc(dateLongue(r.date))}</span>
+    <span class="s" style="display:block">${STATUTS_RDV[r.statut][0]}${r.regle ? ' · déjà réglé ' + eur(r.regle.montant) : ''}</span></span><span class="droite">${eur(reste(r))}</span></label></li>`).join('')}</ul>`;
+  formulaire({titre:'Encaisser · ' + nomAff(p), ok:'Encaisser', avant:liste, champs:[{n:'date', l:'Date', t:'date', v:aujourdhui(), demi:true}, {n:'mode', l:'Mode', t:'select', o:MODES.map(([v, t]) => ({v, t})), v:dernierMode, demi:true}],
+    apresChamps:`<p class="total-ligne"><span>Total</span><span id="total-enc"></span></p>`,
+    apres:(v, f) => { const maj = () => { $('#total-enc', v).textContent = eur(somme(l.filter(r => $(`[name="s-${r.id}"]`, f).checked).map(reste))); }; f.addEventListener('change', maj); maj(); },
+    onOk:v => {
+      const choisis = l.filter(r => v['s-' + r.id]); if(!choisis.length) return 'Cochez au moins une séance.'; if(!dateValide(v.date)) return 'Date invalide.';
+      dernierMode = v.mode; const tot = somme(choisis.map(reste));
+      choisis.forEach(r => { r.regle = {date:v.date, mode:v.mode, montant:du(r)}; r.modif = maintenant(); });
+      sauver(); fermer(true); rendre(); toast('Encaissé : ' + eur(tot) + ' (' + pluriel(choisis.length, 'séance') + ')');
+    }});
+}
+
+/* --- Notes de séance (chiffrées comme tout le reste) --- */
+function formNote(n0 = {}){
+  const ex = n0.id ? DB.notes.find(n => n.id === n0.id) : null, n = ex || n0, r = n.rdv ? unRdv(n.rdv) : null, pid = n.patient || (r && r.patient), p = unPatient(pid);
+  if(!p) return toast('Patient introuvable');
+  formulaire({titre:(ex ? 'Note · ' : 'Nouvelle note · ') + nomAff(p), ok:'Enregistrer', champs:[
+    {n:'date', l:'Date', t:'date', v:n.date || (r && r.date) || aujourdhui()},
+    {n:'texte', l:'Note', t:'zone', lignes:14, v:n.texte, attrs:'autofocus placeholder="Thèmes abordés, observations, pistes pour la prochaine séance…"'}],
+    suppr:ex ? async () => { if(!(await confirmer({titre:'Supprimer cette note ?', texte:'Note du ' + esc(dateMoyenne(ex.date)) + '.', ok:'Supprimer', danger:true}))) return formNote({id:ex.id});
+      supprimerAvecRetour('Note supprimée', () => { DB.notes = DB.notes.filter(x => x.id !== ex.id); }); } : null,
+    onOk:v => {
+      if(!txt(v.texte)) return 'La note est vide.';
+      if(ex) Object.assign(ex, {date:dateValide(v.date) || ex.date, texte:v.texte, modif:maintenant()});
+      else DB.notes.push({id:uid(), patient:p.id, rdv:r ? r.id : '', date:dateValide(v.date) || aujourdhui(), texte:v.texte, cree:maintenant(), modif:maintenant()});
+      sauver(); fermer(true); rendre(); toast('Note enregistrée');
+    }});
+}
+function ficheNote(id){
+  const n = DB.notes.find(x => x.id === id); if(!n) return;
+  const p = unPatient(n.patient), r = n.rdv ? unRdv(n.rdv) : null;
+  ouvrir(esc('Note · ' + nomAff(p)), `<p class="faible" style="margin:0 0 12px">${esc(dateLongueAn(n.date))}${r ? ' · séance de ' + r.heure : ''}${n.modif && n.modif.slice(0, 10) !== n.cree.slice(0, 10) ? ' · modifiée le ' + esc(dateCourte(n.modif.slice(0, 10))) : ''}</p>
+    <div class="carte"><div class="note-seance">${esc(n.texte)}</div></div>`, {pied:btn('note-modifier', ico('crayon', 16) + 'Modifier', 'btn p', `data-id="${n.id}"`)});
+}
+
+/* --- Finances : mois ou année ; encaissé, impayés, charges, résultat, provision URSSAF, plafond micro-BNC --- */
+let finVue = 'mois', finMois = moisDe(aujourdhui()), finEncTout = false;
+function periodeFin(){ if(finVue === 'an'){ const a = finMois.slice(0, 4); return [a + '-01-01', a + '-12-31', a]; } return [finMois + '-01', finMois + '-' + pad(joursDansMois(finMois)), nomMois(finMois)]; }
+function pageFinances(){
+  const [d, f, nom] = periodeFin(), auj = aujourdhui(), an = finMois.slice(0, 4), r = DB.reglages;
+  const enc = encaissements(d, f), totEnc = somme(enc), charges = chargesEntre(d, f), totCh = somme(charges);
+  const seances = DB.rdv.filter(x => x.patient && x.date >= d && x.date <= f && x.date <= auj), honorees = seances.filter(x => x.statut === 'honore'), absents = seances.filter(x => x.statut === 'absent');
+  const facture = somme(seances.map(du)), imp = impayes(), patientsVus = new Set(honorees.map(x => x.patient)).size;
+  const encAn = somme(encaissements(an + '-01-01', an + '-12-31')), provision = Math.round(totEnc * r.provision) / 100, pctSeuil = r.seuil ? Math.min(100, encAn / r.seuil * 100) : 0;
+  const seg = (v, t) => `<button type="button" class="${finVue === v ? 'on' : ''}" data-action="fin-vue" data-v="${v}" aria-pressed="${finVue === v}">${t}</button>`;
+  let html = `<div class="nav-periode"><button type="button" class="rond" data-action="fin-prec" aria-label="Période précédente">${ico('chevronG', 18)}</button><strong>${esc(nom)}</strong>
+    <button type="button" class="rond" data-action="fin-suiv" aria-label="Période suivante">${ico('chevronD', 18)}</button>${finMois !== moisDe(auj) ? btn('fin-auj', 'Ce mois-ci', 'btn f petit') : ''}
+    <div class="segment" role="group" aria-label="Période">${seg('mois', 'Mois')}${seg('an', 'Année')}</div></div>`;
+  html += `<div class="grille g4">
+    <div class="chiffre"><div class="lib">${ico('encaisser', 15)}Encaissé</div><div class="val">${eurRond(totEnc)}</div><div class="note">${pluriel(enc.length, 'paiement')}</div></div>
+    <div class="chiffre"><div class="lib">${ico('calendrier', 15)}Séances</div><div class="val">${honorees.length}</div><div class="note">${eurRond(facture)} facturés · ${pluriel(patientsVus, 'patient')}</div></div>
+    <div class="chiffre"><div class="lib">${ico('euro', 15)}Charges</div><div class="val">${eurRond(totCh)}</div><div class="note">Résultat ${eurRond(totEnc - totCh)}</div></div>
+    <div class="chiffre${imp.length ? ' att' : ''}"><div class="lib">${ico('alerte', 15)}Impayés</div><div class="val">${eurRond(totalImpayes())}</div><div class="note">à ce jour, toutes périodes</div></div></div>`;
+  html += `<div class="carte"><h3>${ico('bouclier', 17)}À mettre de côté<span class="droite faible" style="font-size:13px">${r.provision} % de l’encaissé</span></h3>
+    <div style="font-size:24px;font-weight:700">${eur(provision)}</div><p class="aide" style="margin:4px 0 0">Estimation des cotisations (URSSAF, CIPAV…) sur ce qui a été encaissé ${finVue === 'an' ? 'cette année' : 'ce mois-ci'}. Taux à ajuster dans Réglages selon votre situation.</p>
+    ${r.seuil ? `<div style="margin-top:14px;font-size:13.5px;display:flex;justify-content:space-between;gap:8px"><span>Plafond micro-BNC ${an}</span><span class="num">${eurRond(encAn)} / ${eurRond(r.seuil)}</span></div>
+      <div class="jauge${pctSeuil >= 85 ? ' att' : ''}"><i style="width:${pctSeuil.toFixed(1)}%"></i></div>` : ''}</div>`;
+  if(finVue === 'an'){
+    const mois = Array.from({length:12}, (_, i) => an + '-' + pad(i + 1)), v = mois.map(m => somme(encaissements(m + '-01', m + '-' + pad(joursDansMois(m))))), max = Math.max(1, ...v);
+    html += `<div class="carte"><h3>${ico('graphique', 17)}Encaissé par mois</h3><div class="barres" role="img" aria-label="Encaissé par mois">${mois.map((m, i) => `<button type="button" class="b${v[i] ? '' : ' vide'}${m === moisDe(auj) ? ' on' : ''}" data-action="fin-mois" data-m="${m}" title="${esc(nomMois(m))} : ${eur(v[i])}" style="border:0;background:transparent;padding:0">
+      <i style="height:${Math.max(2, v[i] / max * 100)}%"></i><span>${esc(F.moisCourt.format(versDate(m + '-01')).replace('.', '').slice(0, 3))}</span></button>`).join('')}</div></div>`;
+  }
+  /* impayés groupés par patient */
+  const parPatient = new Map(); imp.forEach(x => { const l = parPatient.get(x.patient) || []; l.push(x); parPatient.set(x.patient, l); });
+  html += `<div class="section-titre">Impayés · ${eur(totalImpayes())}</div><div class="carte" style="padding:4px 14px">${parPatient.size ? `<ul class="liste">${[...parPatient].sort((a, b) => a[1][0].date.localeCompare(b[1][0].date)).map(([pid, l]) => { const p = unPatient(pid);
+    return `<li><button type="button" class="ligne-btn" data-action="impayes-patient" data-patient="${esc(pid)}">${avatar(p)}<span class="corps"><span class="t" style="display:block">${esc(nomAff(p))}</span>
+      <span class="s" style="display:block">${pluriel(l.length, 'séance')} · depuis le ${esc(dateCourte(l[0].date))}</span></span><span class="droite">${puce(eur(somme(l.map(reste))), 'orange')}</span></button></li>`; }).join('')}</ul>` : vide('Aucun impayé.')}</div>`;
+  /* encaissements de la période */
+  const encMontres = finEncTout ? enc.slice().reverse() : enc.slice().reverse().slice(0, 8);
+  html += `<div class="section-titre">Encaissements · ${eur(totEnc)}<span class="droite">${btn('recette-nouvelle', ico('plus', 15) + 'Autre recette', 'btn f petit')}</span></div>
+    <div class="carte" style="padding:4px 14px">${enc.length ? `<ul class="liste">${encMontres.map(x => `<li>${x.recette ? `<button type="button" class="ligne-btn" data-action="recette-ouvrir" data-id="${x.recette}">` : x.rdv ? `<button type="button" class="ligne-btn" data-action="rdv-ouvrir" data-id="${x.rdv}">` : '<span class="ligne-btn">'}
+      <span class="corps"><span class="t" style="display:block">${esc(x.patient ? nomAff(unPatient(x.patient)) : x.libelle)}</span><span class="s" style="display:block">${esc(dateCourte(x.date))} · ${esc(nomMode(x.mode))}${x.patient ? ' · ' + esc(x.libelle) : ''}</span></span>
+      <span class="droite">${eur(x.montant)}</span>${x.recette || x.rdv ? '</button>' : '</span>'}</li>`).join('')}</ul>
+      ${enc.length > 8 ? `<div style="padding:8px 0 10px">${btn('fin-enc-tout', finEncTout ? 'Afficher moins' : `Afficher les ${enc.length}`, 'btn plein')}</div>` : ''}` : vide('Aucun encaissement sur la période.')}</div>`;
+  /* charges : par catégorie, charges fixes du mois, liste */
+  const parCat = new Map(); charges.forEach(c => parCat.set(c.categorie, (parCat.get(c.categorie) || 0) + c.montant));
+  const maxCat = Math.max(1, ...parCat.values()), fixesMois = finVue === 'mois' ? DB.fixes : [];
+  html += `<div class="section-titre">Charges · ${eur(totCh)}<span class="droite">${btn('charge-nouvelle', ico('plus', 15) + 'Charge', 'btn f petit')}</span></div><div class="carte">`;
+  if(fixesMois.length) html += `<h3 style="font-size:14px">Charges fixes de ${esc(nomMois(finMois).split(' ')[0].toLowerCase())}</h3><ul class="liste" style="margin-bottom:12px">${fixesMois.map(fx => { const fait = fixeSaisie(fx, finMois);
+    return `<li><span class="corps"><span class="t" style="display:block">${esc(fx.libelle)}</span><span class="s" style="display:block">${fx.libelle === nomCategorie(fx.categorie) ? '' : esc(nomCategorie(fx.categorie)) + ' · '}le ${fx.jour}</span></span>
+      <span class="droite">${eur(fx.montant)}</span>${fait ? puce(ico('check', 12) + 'Saisie', 'vert') : btn('fixe-saisir', 'Saisir', 'btn petit', `data-id="${fx.id}"`)}</li>`; }).join('')}</ul>`;
+  html += parCat.size ? [...parCat].sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div class="cat-ligne" style="--c:var(--${couleurCategorie(k)})"><span>${esc(nomCategorie(k))}</span><span class="num">${eur(v)}</span>
+      <span class="jauge"><i style="width:${(v / maxCat * 100).toFixed(1)}%"></i></span></div>`).join('') : vide('Aucune charge sur la période.');
+  if(charges.length) html += `<ul class="liste" style="margin-top:10px">${charges.slice(0, finVue === 'an' ? 12 : 50).map(c => `<li><button type="button" class="ligne-btn" data-action="charge-ouvrir" data-id="${c.id}"><span class="corps"><span class="t" style="display:block">${esc(c.libelle || nomCategorie(c.categorie))}</span>
+      <span class="s" style="display:block">${esc(dateCourte(c.date))}${c.libelle && c.libelle !== nomCategorie(c.categorie) ? ' · ' + esc(nomCategorie(c.categorie)) : ''}</span></span><span class="droite">${eur(c.montant)}</span></button></li>`).join('')}</ul>` + (finVue === 'an' && charges.length > 12 ? `<p class="aide">… les autres dans chaque mois.</p>` : '');
+  html += `</div>`;
+  /* activité */
+  const tauxAbs = honorees.length + absents.length ? Math.round(absents.length / (honorees.length + absents.length) * 100) : 0;
+  html += `<div class="section-titre">Activité</div><div class="grille">
+    <div class="chiffre"><div class="lib">Absences</div><div class="val">${tauxAbs} %</div><div class="note">${pluriel(absents.length, 'absence')} non excusée${absents.length > 1 ? 's' : ''}</div></div>
+    <div class="chiffre"><div class="lib">Annulations</div><div class="val">${seances.filter(x => x.statut === 'annule').length}</div><div class="note">séances annulées à temps</div></div></div>`;
+  html += `<div class="section-titre">Pour le comptable · ${an}</div><div class="carte"><p class="aide">Fichiers CSV (Excel, Numbers) de l’année ${an}. Le livre des recettes liste chaque encaissement par date.</p>
+    <div class="boutons">${btn('export-recettes', ico('telecharger', 16) + 'Livre des recettes', 'btn')}${btn('export-depenses', ico('telecharger', 16) + 'Registre des dépenses', 'btn')}</div>
+    <label class="case-ligne" style="margin:12px 0 0"><input type="checkbox" id="export-initiales"${exportInitiales ? ' checked' : ''}><span>Initiales des patients seulement dans le livre des recettes</span></label></div>`;
+  return {titre:'Finances', html, plus:'charge-nouvelle', plusLabel:'Nouvelle charge', apres:() => { $('#export-initiales').addEventListener('change', e => { exportInitiales = e.target.checked; }); }};
+}
+let exportInitiales = false;
+function feuilleImpayes(pid){
+  const p = unPatient(pid), l = seancesDe(pid).filter(r => r.date <= aujourdhui() && reste(r) > 0).reverse(), tot = somme(l.map(reste));
+  const texte = modele(DB.reglages.modeleRelance, {prenom:p ? p.prenom || nomComplet(p) : '', seances:l.length > 1 ? 'les séances des ' + l.map(r => dateCourte(r.date)).join(', ') : 'la séance du ' + dateCourte(l[0].date),
+    montant:eur(tot), praticien:DB.reglages.praticien});
+  const corps = `<ul class="liste" style="margin-bottom:12px">${l.map(r => `<li><button type="button" class="ligne-btn" data-action="rdv-ouvrir" data-id="${r.id}"><span class="corps"><span class="t" style="display:block">${esc(dateLongue(r.date))}</span>
+    <span class="s" style="display:block">${STATUTS_RDV[r.statut][0]}${r.regle ? ' · déjà réglé ' + eur(r.regle.montant) : ''}</span></span><span class="droite">${eur(reste(r))}</span></button></li>`).join('')}</ul>
+    <p class="total-ligne"><span>Total</span><span>${eur(tot)}</span></p>
+    <div class="section-titre" style="margin-top:16px">Relancer</div><div class="carte" style="font-size:14px;white-space:pre-wrap">${esc(texte)}</div>
+    <div class="boutons">${p && p.telephone ? `<a class="btn" href="${esc(lienSms(p.telephone, texte))}">${ico('bulle', 16)}SMS</a>` : ''}${p && p.email ? `<a class="btn" href="${esc(lienMail(p.email, 'Règlement de séance', texte))}">${ico('courriel', 16)}E-mail</a>` : ''}
+      <a class="btn" href="#/patient/${encodeURIComponent(pid)}">${ico('personne', 16)}Fiche</a></div>`;
+  ouvrir(esc('Impayés · ' + nomAff(p)), corps, {pied:btn('encaisser-plusieurs', ico('encaisser', 16) + 'Encaisser', 'btn p', `data-patient="${esc(pid)}"`)});
+}
+
+/* --- Charges, charges fixes, autres recettes --- */
+const optionsCategories = () => CATEGORIES.map(([v, t]) => ({v, t}));
+function formCharge(c0 = {}){
+  const ex = c0.id ? DB.charges.find(c => c.id === c0.id) : null, c = ex || c0;
+  formulaire({titre:ex ? 'Modifier la charge' : 'Nouvelle charge', champs:[
+    {n:'categorie', l:'Catégorie', t:'select', o:optionsCategories(), v:c.categorie || 'loyer'},
+    {n:'libelle', l:'Libellé', v:c.libelle, aide:'facultatif, ex. « Cotisation 3e trimestre »'},
+    {n:'montant', l:'Montant', t:'montant', v:c.montant ?? '', demi:true, attrs:'autofocus'}, {n:'date', l:'Date', t:'date', v:c.date || aujourdhui(), demi:true},
+    {n:'mode', l:'Payé par', t:'select', o:MODES.map(([v, t]) => ({v, t})), v:c.mode || 'virement'}, {n:'note', l:'Note', v:c.note}],
+    suppr:ex ? () => { fermer(true); supprimerAvecRetour('Charge supprimée', () => { DB.charges = DB.charges.filter(x => x.id !== ex.id); }); } : null,
+    onOk:v => {
+      const m = nombre(v.montant, 0); if(m <= 0) return 'Montant invalide.'; if(!dateValide(v.date)) return 'Date invalide.';
+      const champs = {categorie:v.categorie, libelle:txt(v.libelle), montant:m, date:v.date, mode:v.mode, note:txt(v.note), modif:maintenant()};
+      if(ex) Object.assign(ex, champs); else DB.charges.push({id:uid(), ...champs, fixe:c.fixe || '', cree:maintenant()});
+      DB = normaliser(DB); sauver(); fermer(true); rendre(); toast(ex ? 'Charge modifiée' : 'Charge ajoutée');
+    }});
+}
+function saisirFixe(id){
+  const fx = DB.fixes.find(x => x.id === id); if(!fx) return;
+  const j = Math.min(fx.jour, joursDansMois(finMois));
+  formCharge({categorie:fx.categorie, libelle:fx.libelle, montant:fx.montant, date:finMois + '-' + pad(j), mode:fx.mode, fixe:fx.id});
+}
+function formFixe(f0 = {}){
+  const ex = f0.id ? DB.fixes.find(x => x.id === f0.id) : null, f = ex || f0;
+  formulaire({titre:ex ? 'Modifier la charge fixe' : 'Nouvelle charge fixe', avant:'<p class="aide">Une charge qui revient chaque mois (loyer, abonnement…) : elle est proposée à la saisie chaque mois, en un geste.</p>', champs:[
+    {n:'libelle', l:'Libellé', v:f.libelle, attrs:'autofocus', aide:'ex. Loyer du cabinet'}, {n:'categorie', l:'Catégorie', t:'select', o:optionsCategories(), v:f.categorie || 'loyer'},
+    {n:'montant', l:'Montant', t:'montant', v:f.montant ?? '', demi:true}, {n:'jour', l:'Jour du mois', t:'nombre', v:f.jour || 5, demi:true},
+    {n:'mode', l:'Payé par', t:'select', o:MODES.map(([v, t]) => ({v, t})), v:f.mode || 'virement'}],
+    suppr:ex ? () => { fermer(true); supprimerAvecRetour('Charge fixe supprimée', () => { DB.fixes = DB.fixes.filter(x => x.id !== ex.id); }); } : null,
+    onOk:v => {
+      if(!txt(v.libelle)) return 'Indiquez un libellé.'; const m = nombre(v.montant, 0); if(m <= 0) return 'Montant invalide.';
+      const champs = {libelle:txt(v.libelle), categorie:v.categorie, montant:m, jour:Math.min(28, Math.max(1, Math.round(nombre(v.jour, 5)))), mode:v.mode};
+      if(ex) Object.assign(ex, champs); else DB.fixes.push({id:uid(), ...champs});
+      sauver(); fermer(true); rendre(); toast('Charge fixe enregistrée');
+    }});
+}
+function formRecette(x0 = {}){
+  const ex = x0.id ? DB.recettes.find(x => x.id === x0.id) : null, x = ex || x0;
+  formulaire({titre:ex ? 'Modifier la recette' : 'Autre recette', avant:'<p class="aide">Ce qui n’est pas une séance : atelier, supervision donnée, intervention…</p>', champs:[
+    {n:'libelle', l:'Libellé', v:x.libelle, attrs:'autofocus'}, {n:'montant', l:'Montant', t:'montant', v:x.montant ?? '', demi:true}, {n:'date', l:'Date', t:'date', v:x.date || aujourdhui(), demi:true},
+    {n:'mode', l:'Reçu par', t:'select', o:MODES.map(([v, t]) => ({v, t})), v:x.mode || 'virement'}],
+    suppr:ex ? () => { fermer(true); supprimerAvecRetour('Recette supprimée', () => { DB.recettes = DB.recettes.filter(y => y.id !== ex.id); }); } : null,
+    onOk:v => {
+      const m = nombre(v.montant, 0); if(m <= 0) return 'Montant invalide.'; if(!dateValide(v.date)) return 'Date invalide.';
+      const champs = {libelle:txt(v.libelle) || 'Autre recette', montant:m, date:v.date, mode:v.mode, modif:maintenant()};
+      if(ex) Object.assign(ex, champs); else DB.recettes.push({id:uid(), ...champs, cree:maintenant()});
+      sauver(); fermer(true); rendre(); toast('Recette enregistrée');
+    }});
+}
+
+/* --- Exports CSV (point-virgule, UTF-8 avec BOM : s'ouvre directement dans Excel) --- */
+const cellule = v => { const s = typeof v === 'number' ? String(v.toFixed(2)).replace('.', ',') : String(v ?? ''); return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+const csv = lignes => '﻿' + lignes.map(l => l.map(cellule).join(';')).join('\r\n') + '\r\n';
+async function partagerFichier(nom, contenu, type){
+  const fichier = new File([contenu], nom, {type});
+  if(navigator.canShare && navigator.share && estIOS()){
+    try { if(navigator.canShare({files:[fichier]})){ await navigator.share({files:[fichier], title:nom}); return true; } }
+    catch(e){ if(e && e.name === 'AbortError') return false; }
+  }
+  const url = URL.createObjectURL(fichier), a = document.createElement('a');
+  a.href = url; a.download = nom; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  return true;
+}
+function exporterRecettes(){
+  const an = finMois.slice(0, 4), l = encaissements(an + '-01-01', an + '-12-31');
+  const nomP = pid => { const p = unPatient(pid); return !p ? '' : exportInitiales ? [p.prenom, p.nom].filter(Boolean).map(x => x.charAt(0).toUpperCase() + '.').join(' ') : nomComplet(p); };
+  const lignes = [['Date d’encaissement', 'Patient ou origine', 'Nature', 'Mode de paiement', 'Montant (€)'], ...l.map(x => [dateChiffres(x.date), x.patient ? nomP(x.patient) : x.libelle, x.patient ? x.libelle : 'Autre recette', nomMode(x.mode), x.montant]),
+    [], ['Total ' + an, '', '', '', somme(l)]];
+  partagerFichier('cabinet-livre-des-recettes-' + an + '.csv', csv(lignes), 'text/csv');
+}
+function exporterDepenses(){
+  const an = finMois.slice(0, 4), l = chargesEntre(an + '-01-01', an + '-12-31').reverse();
+  const lignes = [['Date', 'Catégorie', 'Libellé', 'Mode de paiement', 'Montant (€)'], ...l.map(c => [dateChiffres(c.date), nomCategorie(c.categorie), c.libelle, nomMode(c.mode), c.montant]),
+    [], ['Total ' + an, '', '', '', somme(l)]];
+  partagerFichier('cabinet-registre-des-depenses-' + an + '.csv', csv(lignes), 'text/csv');
+}
+
+/* --- Réglages --- */
+const ligneReglage = (lib, val) => `<li><span class="corps"><span class="s" style="display:block">${lib}</span><span class="t" style="display:block;white-space:normal">${val || '<span class="faible">—</span>'}</span></span></li>`;
+const NOMS_JOURS = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+const lireTheme = () => { try { return localStorage.getItem('cabinet.theme') || 'auto'; } catch(e){ return 'auto'; } };
+function appliquerTheme(v){
+  try { localStorage.setItem('cabinet.theme', v); } catch(e){ /* rien */ }
+  if(v === 'clair' || v === 'sombre') document.documentElement.dataset.theme = v; else delete document.documentElement.dataset.theme;
+  majCouleurBarre();
+}
+const majCouleurBarre = () => { const m = $('meta[name="theme-color"]'); if(m) m.content = getComputedStyle(document.documentElement).getPropertyValue('--fond').trim() || '#f5f4f2'; };
+function pageReglages(){
+  const r = DB.reglages, th = lireTheme(), nbEx = DB.patients.filter(p => p.demo).length;
+  const segTheme = [['auto', 'Comme le téléphone'], ['clair', 'Clair'], ['sombre', 'Sombre']].map(([v, t]) => `<button type="button" class="${th === v ? 'on' : ''}" data-action="theme" data-v="${v}" aria-pressed="${th === v}">${t}</button>`).join('');
+  const delais = [[0, 'Dès que je quitte l’appli'], [1, 'Après 1 minute'], [2, 'Après 2 minutes'], [5, 'Après 5 minutes'], [10, 'Après 10 minutes'], [15, 'Après 15 minutes'], [30, 'Après 30 minutes']];
+  const rappels = [[0, 'Jamais'], [3, 'Tous les 3 jours'], [7, 'Chaque semaine'], [14, 'Toutes les 2 semaines'], [30, 'Chaque mois']];
+  let html = `<div class="section-titre">Sauvegarde</div><div class="carte">
+    <p style="margin:0 0 4px"><strong>${r.derniereSauvegarde ? 'Dernière sauvegarde ' + esc(ilYA(r.derniereSauvegarde.slice(0, 10))) : 'Aucune sauvegarde pour l’instant'}</strong></p>
+    <p class="aide">Un fichier chiffré, illisible sans votre code ou votre clé de secours. Rangez-le hors du téléphone (ordinateur, clé USB…) : c’est la seule copie en cas de perte ou de panne.</p>
+    <div class="boutons">${btn('sauvegarder', ico('telecharger', 16) + 'Sauvegarder maintenant', 'btn p')}${btn('restaurer', ico('importer', 16) + 'Restaurer', 'btn')}</div>
+    <label class="champ" style="margin:14px 0 0"><span>Me le rappeler</span><select data-reglage="rappelSauvegarde">${rappels.map(([v, t]) => `<option value="${v}"${r.rappelSauvegarde === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label></div>`;
+  html += `<div class="section-titre">Sécurité</div><div class="carte">
+    <label class="champ"><span>Verrouillage automatique</span><select data-reglage="verrou">${delais.map(([v, t]) => `<option value="${v}"${r.verrou === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+    <label class="case-ligne"><input type="checkbox" data-reglage="discret"${r.discret ? ' checked' : ''}><span>Mode discret : initiales seulement, notes et coordonnées masquées<br><span class="faible" style="font-size:13px">aussi avec l’œil de la barre du haut</span></span></label>
+    <div class="boutons">${btn('verrouiller', ico('cadenas', 16) + 'Verrouiller', 'btn')}${btn('code-changer', ico('cle', 16) + 'Changer le code', 'btn')}${btn('secours-changer', 'Nouvelle clé de secours', 'btn')}</div></div>`;
+  html += `<div class="section-titre">Cabinet<span class="droite">${btn('reg-cabinet', ico('crayon', 15) + 'Modifier', 'btn f petit')}</span></div><div class="carte" style="padding:4px 14px"><ul class="liste">
+    ${ligneReglage('Praticien', esc([r.praticien, r.profession].filter(Boolean).join(' · ')))}${ligneReglage('Adresse', esc(r.adresse))}${ligneReglage('Contact', esc([r.telephone, r.email].filter(Boolean).join(' · ')))}
+    ${ligneReglage('ADELI / RPPS · SIRET', esc([r.adeli, r.siret].filter(Boolean).join(' · ')))}</ul></div>`;
+  html += `<div class="section-titre">Séances<span class="droite">${btn('reg-seances', ico('crayon', 15) + 'Modifier', 'btn f petit')}</span></div><div class="carte" style="padding:4px 14px"><ul class="liste">
+    ${ligneReglage('Tarif et durée habituels', eur(r.tarif) + ' · ' + r.duree + ' min')}${ligneReglage('Consultations', esc(r.jours.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(j => NOMS_JOURS[j]).join(' ')) + ' · ' + r.debut + ' – ' + r.fin)}
+    ${ligneReglage('Absence non excusée', r.absenceFacturee ? 'Facturée par défaut' : 'Non facturée par défaut')}</ul></div>`;
+  html += `<div class="section-titre">Finances<span class="droite">${btn('reg-finances', ico('crayon', 15) + 'Modifier', 'btn f petit')}</span></div><div class="carte" style="padding:4px 14px"><ul class="liste">
+    ${ligneReglage('À mettre de côté pour les cotisations', r.provision + ' % de l’encaissé')}${ligneReglage('Plafond micro-BNC', r.seuil ? eur(r.seuil) : 'non suivi')}</ul></div>
+    <div class="section-titre">Charges fixes<span class="droite">${btn('fixe-nouvelle', ico('plus', 15) + 'Ajouter', 'btn f petit')}</span></div><div class="carte" style="padding:4px 14px">
+    ${DB.fixes.length ? `<ul class="liste">${DB.fixes.map(f => `<li><button type="button" class="ligne-btn" data-action="fixe-ouvrir" data-id="${f.id}"><span class="corps"><span class="t" style="display:block">${esc(f.libelle)}</span>
+      <span class="s" style="display:block">${f.libelle === nomCategorie(f.categorie) ? '' : esc(nomCategorie(f.categorie)) + ' · '}le ${f.jour} du mois</span></span><span class="droite">${eur(f.montant)}</span></button></li>`).join('')}</ul>` : vide('Loyer, abonnements… : proposés chaque mois à la saisie, en un geste.')}</div>`;
+  html += `<div class="section-titre">Messages aux patients<span class="droite">${btn('reg-messages', ico('crayon', 15) + 'Modifier', 'btn f petit')}</span></div><div class="carte" style="padding:4px 14px"><ul class="liste">
+    ${ligneReglage('Rappel de rendez-vous (SMS)', esc(r.modeleRappel))}${ligneReglage('Relance d’impayé', esc(r.modeleRelance))}</ul></div>`;
+  html += `<div class="section-titre">Apparence</div><div class="carte"><div class="segment" role="group" aria-label="Apparence" style="display:flex">${segTheme.replace(/<button /g, '<button style="flex:1" ')}</div></div>`;
+  html += `<div class="section-titre">Données</div><div class="carte"><p class="aide">${pluriel(DB.patients.length, 'patient')}, ${pluriel(DB.rdv.length, 'rendez-vous', 'rendez-vous')}, ${pluriel(DB.notes.length, 'note')}. Tout est chiffré et ne quitte jamais cet appareil.</p>
+    <div class="boutons">${nbEx ? btn('exemples-retirer', 'Retirer les ' + pluriel(nbEx, 'patient') + ' d’exemple', 'btn') : btn('exemples', 'Ajouter des exemples', 'btn')}${btn('tout-effacer', ico('corbeille', 16) + 'Tout effacer', 'btn danger')}</div></div>`;
+  html += `<p class="aide" style="text-align:center;margin-top:18px" id="a-propos">Cabinet ${VERSION_APPLI} · ${installee() ? 'installée sur l’écran d’accueil' : estIOS() ? '<strong style="color:var(--rose)">pas encore installée sur l’écran d’accueil</strong>' : 'dans le navigateur'}</p>`;
+  return {titre:'Réglages', html, apres:async () => {
+    try { if(navigator.storage && navigator.storage.persisted && await navigator.storage.persisted()) $('#a-propos').insertAdjacentHTML('beforeend', ' · stockage protégé'); } catch(e){ /* rien */ }
+  }};
+}
+function formReglages(quoi){
+  const r = DB.reglages;
+  const def = {
+    cabinet:{titre:'Cabinet', champs:[{n:'praticien', l:'Prénom et nom', v:r.praticien}, {n:'profession', l:'Profession', v:r.profession}, {n:'adresse', l:'Adresse du cabinet', t:'zone', lignes:2, v:r.adresse},
+      {n:'telephone', l:'Téléphone', t:'tel', v:r.telephone, demi:true}, {n:'email', l:'E-mail', t:'email', v:r.email, demi:true}, {n:'adeli', l:'N° ADELI / RPPS', v:r.adeli, demi:true}, {n:'siret', l:'SIRET', v:r.siret, demi:true}]},
+    seances:{titre:'Séances', champs:[{n:'tarif', l:'Tarif habituel', t:'montant', v:String(r.tarif).replace('.', ','), demi:true}, {n:'duree', l:'Durée (min)', t:'nombre', v:r.duree, demi:true},
+      {n:'debut', l:'Début de journée', t:'heure', v:r.debut, demi:true}, {n:'fin', l:'Fin de journée', t:'heure', v:r.fin, demi:true},
+      {t:'html', html:`<div class="champ"><span>Jours de consultation</span><div class="boutons">${[1, 2, 3, 4, 5, 6, 0].map(j => `<label class="puce" style="padding:6px 10px;font-size:14px"><input type="checkbox" name="j${j}"${r.jours.includes(j) ? ' checked' : ''} style="margin:0 4px 0 0;accent-color:var(--accent)">${NOMS_JOURS[j]}</label>`).join('')}</div></div>`},
+      {n:'absenceFacturee', l:'Facturer par défaut une absence non excusée', t:'case', v:r.absenceFacturee, aide:'modifiable pour chaque absence'}]},
+    finances:{titre:'Finances', champs:[{n:'provision', l:'Part de l’encaissé à mettre de côté (%)', t:'nombre', v:r.provision, aide:'cotisations URSSAF, CIPAV… à vérifier avec votre comptable'},
+      {n:'seuil', l:'Plafond micro-BNC (€)', t:'montant', v:r.seuil || '', aide:'à vérifier chaque année ; vide = non suivi'}]},
+    messages:{titre:'Messages aux patients', avant:'<p class="aide">Mots remplacés automatiquement : {prenom}, {jour}, {heure}, {praticien} ; pour la relance : {seances}, {montant}.</p>',
+      champs:[{n:'modeleRappel', l:'Rappel de rendez-vous', t:'zone', lignes:3, v:r.modeleRappel}, {n:'modeleRelance', l:'Relance d’impayé', t:'zone', lignes:3, v:r.modeleRelance}]}
+  }[quoi];
+  formulaire({titre:def.titre, champs:def.champs, avant:def.avant || '', onOk:v => {
+    if(quoi === 'seances'){ v.jours = [0, 1, 2, 3, 4, 5, 6].filter(j => v['j' + j]); if(!heureValide(v.debut) || !heureValide(v.fin) || v.fin <= v.debut) return 'Horaires incohérents.'; v.tarif = nombre(v.tarif, r.tarif); v.duree = Math.round(nombre(v.duree, r.duree)); }
+    if(quoi === 'finances'){ v.provision = nombre(v.provision, r.provision); v.seuil = txt(v.seuil) === '' ? 0 : nombre(v.seuil, r.seuil); }
+    def.champs.forEach(c => { if(c.n) r[c.n] = v[c.n]; }); if(quoi === 'seances') r.jours = v.jours;
+    DB = normaliser(DB); sauver(); fermer(true); rendre(); toast('Réglages enregistrés');
+  }});
+}
+function formChangerCode(){
+  formulaire({titre:'Changer le code', ok:'Changer', champs:[{n:'actuel', l:'Code actuel', t:'mdp', attrs:'autofocus'}, {n:'code', l:'Nouveau code', t:'mdp', aide:'6 caractères au moins'}, {n:'code2', l:'Nouveau code, encore une fois', t:'mdp'}],
+    onOk:async v => {
+      const pb = verifNouveauCode(v.code, v.code2); if(pb) return pb;
+      const r = await ouvrirCoffre(coffre, v.actuel); if(!r) return 'Code actuel incorrect.';
+      await changerCode(r.brut, v.code); r.brut.fill(0); fermer(true); toast('Code changé');
+    }});
+}
+function formNouvelleSecours(){
+  formulaire({titre:'Nouvelle clé de secours', ok:'Continuer', avant:'<p class="aide">L’ancienne clé ne fonctionnera plus. Les sauvegardes déjà faites restent ouvrables avec l’ancienne clé ou le code de l’époque.</p>',
+    champs:[{n:'actuel', l:'Code actuel', t:'mdp', attrs:'autofocus'}], onOk:async v => {
+      const r = await ouvrirCoffre(coffre, v.actuel); if(!r) return 'Code incorrect.';
+      const cle = nouvelleCleSecours(); fermer(true);
+      ouvrir('Nouvelle clé de secours', `<p class="aide">Notez-la sur papier, hors du téléphone. Elle ne sera plus affichée.</p><div class="cle-secours">${esc(cle)}</div>
+        <label class="case-ligne" style="margin-top:14px"><input type="checkbox" id="note-ok2"><span>Je l’ai notée.</span></label>`, {pied:btn('secours-ok', 'Enregistrer cette clé', 'btn p', 'disabled'), fermeture:() => r.brut.fill(0), apres:fe => {
+        $('#note-ok2', fe).onchange = e => { $('[data-action="secours-ok"]', fe).disabled = !e.target.checked; };
+        $('[data-action="secours-ok"]', fe).onclick = async () => { await changerSecours(r.brut, cle); r.brut.fill(0); surFermeture = null; fermer(true); toast('Nouvelle clé de secours enregistrée'); };
+      }});
+    }});
+}
+
+/* --- Sauvegarde et restauration (le coffre tel quel : déjà chiffré) --- */
+async function sauvegarder(){
+  await ecrireMaintenant();
+  const contenu = JSON.stringify({app:coffre.app, v:coffre.v, iter:coffre.iter, sel:coffre.sel, cle:coffre.cle, donnees:coffre.donnees, maj:coffre.maj, sauvegarde:maintenant(),
+    lisezmoi:'Sauvegarde chiffrée de Cabinet. Illisible sans le code ou la clé de secours en vigueur au moment de la sauvegarde. Pour la restaurer : Cabinet → Réglages → Restaurer.'}, null, 1);
+  const d = new Date(), nom = 'cabinet-sauvegarde-' + aujourdhui() + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.json';
+  const ok = await partagerFichier(nom, contenu, 'application/json');
+  if(ok){ DB.reglages.derniereSauvegarde = maintenant(); sauver(); rendre(); toast('Sauvegarde prête : rangez-la hors du téléphone'); }
+}
+function restaurer(){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if(!f) return;
+    let c = null; try { c = JSON.parse(await f.text()); } catch(e){ c = null; }
+    if(!verifCoffre(c)) return toast('Ce fichier n’est pas une sauvegarde de Cabinet.');
+    c = {app:c.app, v:c.v, iter:c.iter, sel:c.sel, cle:c.cle, donnees:c.donnees, maj:c.maj};
+    formulaire({titre:'Restaurer une sauvegarde', ok:'Ouvrir la sauvegarde', avant:`<p class="aide">Sauvegarde du ${esc(c.maj ? dateMoyenne(c.maj.slice(0, 10)) : '?')}. Saisissez le code en vigueur à ce moment-là, ou la clé de secours.</p>`,
+      champs:[{n:'secret', l:'Code ou clé de secours', t:'mdp', attrs:'autofocus'}, {n:'parSecours', l:'C’est la clé de secours', t:'case'}],
+      onOk:async v => {
+        const r = await ouvrirCoffre(c, v.secret, !!v.parSecours); if(!r) return v.parSecours ? 'Clé de secours incorrecte.' : 'Code incorrect pour cette sauvegarde.';
+        const d = normaliser(r.donnees);
+        if(etat === 'ouvert' && !(await confirmer({titre:'Remplacer les données ?', texte:`Les données actuelles (${pluriel(DB.patients.length, 'patient')}) seront remplacées par celles de la sauvegarde (${pluriel(d.patients.length, 'patient')}). Pensez à sauvegarder d’abord les données actuelles si besoin.`, ok:'Remplacer', danger:true}))){ r.brut.fill(0); return; }
+        fermer(true);
+        await ecrireCoffre(c); coffre = c; cleDonnees = r.cle; DB = d;
+        if(v.parSecours) return nouveauCodeApresSecours(r.brut);
+        r.brut.fill(0); demanderPersistance(); ouvrirAppli(); toast('Sauvegarde restaurée');
+      }});
+  };
+  inp.click();
+}
+
+/* --- Exemples : patients et séances inventés, pour découvrir l'appli ; retirés d'un geste --- */
+function remplirExemples(){
+  let graine = 42; const alea = () => (graine = (graine * 16807) % 2147483647) / 2147483647, choix = l => l[Math.floor(alea() * l.length)];
+  const auj = aujourdhui(), lundi = lundiDe(auj), h = heureMaintenant(), r = DB.reglages, tarif = r.tarif || 60, duree = r.duree || 50;
+  const motifs = ['Anxiété liée au travail', 'Deuil récent', 'Difficultés dans le couple', 'Troubles du sommeil', 'Manque de confiance en soi', 'Épuisement professionnel'];
+  const textes = ['Séance centrée sur la semaine écoulée. Moins de ruminations le soir ; reprise des exercices de respiration.\nPiste : revenir sur la relation avec la hiérarchie.',
+    'Évocation de souvenirs d’enfance, émotion importante en fin de séance.\nÀ reprendre la prochaine fois, sans forcer.',
+    'Bilan des objectifs fixés au début du suivi : progrès nets sur l’organisation du quotidien. Proposition d’espacer les séances dans un mois.',
+    'Patient(e) fatigué(e), séance plus courte dans les échanges. Travail sur les signaux d’alerte et les ressources disponibles.'];
+  const pats = [['Camille', 'Martin', 1, '09:00'], ['Lucas', 'Bernard', 2, '10:00'], ['Inès', 'Moreau', 2, '14:00'], ['Thomas', 'Petit', 3, '11:00'], ['Sarah', 'Laurent', 4, '17:00'], ['Julien', 'Roux', 5, '09:00']];
+  pats.forEach(([prenom, nom, jour, heure], i) => {
+    const p = {id:uid(), prenom, nom, statut:'actif', motif:motifs[i], telephone:'06 00 00 00 ' + pad(10 + i), email:norm(prenom) + '.' + norm(nom) + '@exemple.fr', adressePar:choix(['Dr Lambert', 'Bouche-à-oreille', 'Site internet', 'Dr Caron']),
+      debut:decale(lundi, -42 + jour - 1), couleur:i % 6, demo:true, cree:maintenant(), modif:maintenant()};
+    DB.patients.push(p);
+    const serie = uid();
+    for(let d = decale(lundi, -42 + jour - 1); d <= decale(lundi, 20); d = decale(d, 7)){
+      const x = {id:uid(), patient:p.id, date:d, heure, duree, lieu:i === 4 ? 'Visio' : 'Cabinet', statut:'prevu', facturer:true, montant:tarif, regle:null, serie, note:'', demo:true, cree:maintenant(), modif:maintenant()};
+      const fini = d < auj || (d === auj && minutes(heure) + duree <= minutes(h));
+      if(fini){
+        const t = alea(); x.statut = t < .08 ? 'absent' : t < .14 ? 'annule' : 'honore';
+        if(facturable(x) && alea() < .85 && !(i === 1 && d >= decale(auj, -14)) && !(i === 4 && d >= decale(auj, -7))) x.regle = {date:d, mode:choix(['cb', 'cb', 'especes', 'cheque', 'virement']), montant:tarif};
+        if(x.statut === 'honore' && alea() < .6) DB.notes.push({id:uid(), patient:p.id, rdv:x.id, date:d, texte:choix(textes), demo:true, cree:maintenant(), modif:maintenant()});
+      }
+      DB.rdv.push(x);
+    }
+  });
+  DB.patients.push({id:uid(), prenom:'Hugo', nom:'Garnier', statut:'attente', demande:decale(auj, -10), motif:'Anxiété avant les examens', telephone:'06 00 00 00 30', couleur:0, demo:true, cree:maintenant(), modif:maintenant()});
+  const fini = {id:uid(), prenom:'Chloé', nom:'Fournier', statut:'termine', motif:'Accompagnement d’une rupture', couleur:3, demo:true, cree:maintenant(), modif:maintenant()};
+  DB.patients.push(fini);
+  for(let k = 0; k < 8; k++){ const d = decale(lundi, -150 + k * 7); DB.rdv.push({id:uid(), patient:fini.id, date:d, heure:'16:00', duree, lieu:'Cabinet', statut:'honore', facturer:true, montant:tarif, regle:{date:d, mode:'cheque', montant:tarif}, serie:'', note:'', demo:true, cree:maintenant(), modif:maintenant()}); }
+  DB.rdv.push({id:uid(), patient:'', titre:'Supervision', date:decale(lundi, 3), heure:'12:30', duree:60, lieu:'', statut:'prevu', facturer:true, montant:0, regle:null, serie:'', note:'', demo:true, cree:maintenant(), modif:maintenant()});
+  const fixes = [['Loyer du cabinet', 'loyer', 650, 5, 'virement'], ['Supervision', 'supervision', 80, 15, 'virement'], ['Téléphone et internet', 'telephone', 30, 10, 'cb']].map(([libelle, categorie, montant, jour, mode]) => ({id:uid(), libelle, categorie, montant, jour, mode, demo:true}));
+  DB.fixes.push(...fixes);
+  for(let m = -2; m <= 0; m++){ const ym = decaleMois(moisDe(auj), m);
+    fixes.forEach(fx => { const d = ym + '-' + pad(fx.jour); if(d <= auj && !(m === 0 && fx.categorie === 'supervision')) DB.charges.push({id:uid(), date:d, libelle:fx.libelle, categorie:fx.categorie, montant:fx.montant, mode:fx.mode, fixe:fx.id, note:'', demo:true, cree:maintenant(), modif:maintenant()}); }); }
+  [['urssaf', 'Cotisations trimestrielles', 1280, -1], ['cipav', 'Retraite : acompte', 420, -1], ['assurance', 'Assurance RCP annuelle', 180, -2]].forEach(([categorie, libelle, montant, m]) => {
+    DB.charges.push({id:uid(), date:decaleMois(moisDe(auj), m) + '-20', libelle, categorie, montant, mode:'virement', fixe:'', note:'', demo:true, cree:maintenant(), modif:maintenant()}); });
+  DB.recettes.push({id:uid(), date:decale(auj, -12), libelle:'Atelier gestion du stress', montant:240, mode:'virement', demo:true, cree:maintenant(), modif:maintenant()});
+  DB = normaliser(DB);
+}
+function retirerExemples(){
+  const fixesEx = new Set(DB.fixes.filter(f => f.demo).map(f => f.id));   /* une charge saisie depuis une charge fixe d'exemple part avec elle */
+  ['patients', 'rdv', 'notes', 'charges', 'fixes', 'recettes'].forEach(k => { DB[k] = DB[k].filter(x => !x.demo && !(k === 'charges' && fixesEx.has(x.fixe))); });
+  const restent = new Set(DB.patients.map(p => p.id));   /* séances et notes ajoutées ensuite à un patient d'exemple : parties avec lui */
+  DB.rdv = DB.rdv.filter(r => !r.patient || restent.has(r.patient)); DB.notes = DB.notes.filter(n => restent.has(n.patient));
+}
+
+/* ==========================================================================
+   J. ACTIONS — un seul gestionnaire pour tous les boutons [data-action]
+   ========================================================================== */
+const ROUTES = {aujourdhui:pageAujourdhui, planning:pagePlanning, patients:pagePatients, patient:pagePatient, finances:pageFinances, reglages:pageReglages};
+const ACTIONS = {
+  fermer:() => fermer(),
+  aller:el => { fermer(true); location.hash = '#/' + el.dataset.route; },
+  verrouiller:() => verrouiller(),
+  discret:() => { DB.reglages.discret = !DB.reglages.discret; sauver(); rendre(); toast(DB.reglages.discret ? 'Mode discret : initiales seulement' : 'Noms affichés'); },
+  theme:el => { appliquerTheme(el.dataset.v); rendre(); },
+  /* accueil et verrou */
+  'acc-suite':el => { const e = Number(el.dataset.e); if(e === 2 && !assistant.secours) assistant.secours = nouvelleCleSecours(); accueil(e); },
+  'copier-secours':async () => { try { await navigator.clipboard.writeText($('#cle-secours').textContent); toast('Copiée : collez-la dans un endroit sûr, hors du téléphone'); } catch(e){ toast('Copie impossible : recopiez-la à la main'); } },
+  'verrou-secours':() => ecranVerrou(true),
+  'verrou-code':() => ecranVerrou(false),
+  /* planning */
+  'plan-vue':el => { planVue = el.dataset.v === 'semaine' ? 'semaine' : 'jour'; try { localStorage.setItem(CLE_PLAN, planVue); } catch(e){ /* rien */ } rendre(); },
+  'plan-jour':el => { planJour = el.dataset.j; planVue = 'jour'; if(lireRoute().nom !== 'planning') location.hash = '#/planning'; else rendre(); },
+  'plan-prec':() => { planJour = decale(planJour, -7); rendre(); },
+  'plan-suiv':() => { planJour = decale(planJour, 7); rendre(); },
+  'plan-auj':() => { planJour = aujourdhui(); rendre(); },
+  'rdv-nouveau':el => { const p = unPatient(el.dataset.patient), j = el.dataset.date || (lireRoute().nom === 'planning' ? planJour : aujourdhui());
+    formRdv({patient:p ? p.id : '', date:j, heure:el.dataset.heure || prochaineHeure(j), duree:dureeDe(p), montant:tarifDe(p)}); },
+  'bloc-nouveau':el => formRdv({date:el.dataset.date || planJour, heure:prochaineHeure(el.dataset.date || planJour)}, {bloque:true}),
+  'rdv-ouvrir':el => ficheRdv(el.dataset.id),
+  'rdv-modifier':el => { fermer(true); formRdv({id:el.dataset.id}); },
+  'rdv-suppr':el => supprimerRdv(el.dataset.id),
+  'rdv-statut':el => changerStatut(el.dataset.id, el.dataset.v, !!el.dataset.fiche),
+  'rdv-facturer':el => { const r = unRdv(el.dataset.id); if(!r) return; r.facturer = el.checked; r.modif = maintenant(); sauver(); rendre(); ficheRdv(r.id); },
+  encaisser:el => { fermer(true); formEncaisser(el.dataset.id, {fiche:!!el.dataset.fiche}); },
+  'encaisser-plusieurs':el => { fermer(true); formEncaisserPlusieurs(el.dataset.patient); },
+  'reglement-annuler':el => { const r = unRdv(el.dataset.id); if(!r) return; fermer(true); supprimerAvecRetour('Règlement annulé', () => { r.regle = null; r.modif = maintenant(); }); },
+  /* patients et notes */
+  'patients-onglet':el => { ongletPatients = el.dataset.v; recherchePatients = ''; rendre(); },
+  'patient-nouveau':el => formPatient({statut:el.dataset.statut || (lireRoute().nom === 'patients' ? ongletPatients : 'actif')}),
+  'patient-modifier':el => formPatient({id:el.dataset.id}),
+  'patient-statut':el => { const p = unPatient(el.dataset.id); if(!p) return; p.statut = el.dataset.v; if(p.statut === 'actif' && !p.debut) p.debut = aujourdhui(); p.modif = maintenant(); sauver(); rendre();
+    toast({actif:'Suivi en cours', attente:'Mis en liste d’attente', termine:'Suivi terminé'}[p.statut]); },
+  'patient-suppr':async el => { const p = unPatient(el.dataset.id); if(!p) return;
+    const n = DB.rdv.filter(r => r.patient === p.id).length, nn = DB.notes.filter(x => x.patient === p.id).length;
+    if(!(await confirmer({titre:'Supprimer ' + nomAff(p) + ' ?', texte:`La fiche, ${pluriel(n, 'rendez-vous', 'rendez-vous')} et ${pluriel(nn, 'note')} seront supprimés. Les encaissements disparaîtront aussi des finances.<br>Pour garder l’historique, préférez « Terminer le suivi ».`, ok:'Supprimer', danger:true}))) return;
+    location.hash = '#/patients';
+    supprimerAvecRetour('Patient supprimé', () => { DB.patients = DB.patients.filter(x => x.id !== p.id); DB.rdv = DB.rdv.filter(r => r.patient !== p.id); DB.notes = DB.notes.filter(x => x.patient !== p.id); }); },
+  'note-nouvelle':el => { fermer(true); const r = unRdv(el.dataset.rdv); formNote(r ? {rdv:r.id, patient:r.patient, date:r.date} : {patient:el.dataset.patient}); },
+  'note-ouvrir':el => ficheNote(el.dataset.id),
+  'note-modifier':el => { fermer(true); formNote({id:el.dataset.id}); },
+  'notes-plus':el => { notesMontrees[el.dataset.patient] = nbNotes(el.dataset.patient) + 20; rendre(); },
+  /* finances */
+  'fin-vue':el => { finVue = el.dataset.v === 'an' ? 'an' : 'mois'; rendre(); },
+  'fin-prec':() => { finMois = decaleMois(finMois, finVue === 'an' ? -12 : -1); rendre(); },
+  'fin-suiv':() => { finMois = decaleMois(finMois, finVue === 'an' ? 12 : 1); rendre(); },
+  'fin-auj':() => { finMois = moisDe(aujourdhui()); rendre(); },
+  'fin-mois':el => { finMois = el.dataset.m; finVue = 'mois'; rendre(); },
+  'fin-enc-tout':() => { finEncTout = !finEncTout; rendre(); },
+  'impayes-patient':el => feuilleImpayes(el.dataset.patient),
+  'charge-nouvelle':() => formCharge({}),
+  'charge-ouvrir':el => formCharge({id:el.dataset.id}),
+  'fixe-saisir':el => saisirFixe(el.dataset.id),
+  'fixe-nouvelle':() => formFixe({}),
+  'fixe-ouvrir':el => formFixe({id:el.dataset.id}),
+  'recette-nouvelle':() => formRecette({}),
+  'recette-ouvrir':el => formRecette({id:el.dataset.id}),
+  'export-recettes':() => exporterRecettes(),
+  'export-depenses':() => exporterDepenses(),
+  /* réglages, sauvegarde, données */
+  'reg-cabinet':() => formReglages('cabinet'), 'reg-seances':() => formReglages('seances'), 'reg-finances':() => formReglages('finances'), 'reg-messages':() => formReglages('messages'),
+  'code-changer':() => formChangerCode(),
+  'secours-changer':() => formNouvelleSecours(),
+  sauvegarder:() => sauvegarder(),
+  restaurer:() => restaurer(),
+  exemples:() => { remplirExemples(); sauver(); rendre(); toast('Exemples ajoutés : à retirer dans Réglages → Données'); },
+  'exemples-retirer':async () => { if(!(await confirmer({titre:'Retirer les exemples ?', texte:'Les patients d’exemple, leurs rendez-vous, notes et paiements, ainsi que les charges d’exemple, seront retirés. Vos propres données restent.', ok:'Retirer'}))) return;
+    retirerExemples(); sauver(); rendre(); toast('Exemples retirés'); },
+  'tout-effacer':async () => {
+    if(!(await confirmer({titre:'Tout effacer ?', texte:'Patients, rendez-vous, notes, finances et code : tout sera effacé de cet appareil. <strong>Irréversible</strong> sans sauvegarde.', ok:'Tout effacer', danger:true, saisie:'EFFACER'}))) return;
+    await effacerCoffre(); cleDonnees = null; coffre = null; DB = vierge(); assistant = {}; location.hash = ''; accueil(1);
+  }
+};
+/* Prochaine heure ronde libre du jour (ou le début de journée) */
+function prochaineHeure(j){
+  const r = DB.reglages; let t = minutes(r.debut);
+  if(j === aujourdhui()) t = Math.max(t, Math.ceil((minutes(heureMaintenant()) + 1) / 15) * 15);
+  const libres = creneauxLibres(j).filter(([a, b]) => b > t); if(libres.length) t = Math.max(t, libres[0][0]);
+  return versHeure(Math.min(t, 23 * 60 + 45));
+}
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-action]'); if(!el || el.disabled) return;
+  const f = ACTIONS[el.dataset.action]; if(!f) return;
+  if(el.tagName !== 'INPUT') e.preventDefault();
+  f(el, e);
+});
+document.addEventListener('change', e => {
+  const el = e.target;
+  if(el.id === 'note-ok'){ $('#btn-secours').disabled = !el.checked; return; }
+  if(el.dataset && el.dataset.reglage){ const k = el.dataset.reglage; DB.reglages[k] = el.type === 'checkbox' ? el.checked : Number(el.value); DB = normaliser(DB); sauver(); rendre(); }
+});
+document.addEventListener('submit', e => {
+  const f = e.target;
+  if(f.id === 'f-code'){ e.preventDefault(); const v = lireForm(f), pb = verifNouveauCode(v.code, v.code2), er = $('#err');
+    if(pb){ er.textContent = pb; er.hidden = false; return; } assistant.code = v.code; accueil(3); }
+  else if(f.id === 'f-cab'){ e.preventDefault(); terminerAccueil(f); }
+  else if(f.id === 'f-verrou'){ e.preventDefault(); deverrouiller(f, !!$('[name="secret"]:not([type="password"])', f)); }
+});
+document.addEventListener('keydown', e => { if(e.key === 'Escape' && feuilleOuverte()){ e.preventDefault(); fermer(); } });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', majCouleurBarre);
+
+/* ==========================================================================
+   K. DÉMARRAGE
+   ========================================================================== */
+async function demarrer(){
+  majCouleurBarre();
+  if(!window.crypto || !crypto.subtle) return ecran(`${logo()}<h1>Cabinet</h1><p class="sous">Ce navigateur ne permet pas le chiffrement des données (page non sécurisée ?). Ouvrez Cabinet depuis son adresse https://.</p>`);
+  let c;
+  try { c = await lireCoffre(); }
+  catch(e){ return ecran(`${logo()}<h1>Cabinet</h1><p class="sous">Le stockage de ce navigateur est indisponible (navigation privée ?). Ouvrez Cabinet normalement, ou depuis l’écran d’accueil.</p><p class="faible" style="text-align:center;font-size:13px">${esc(e && e.message || e)}</p>`); }
+  if(verifCoffre(c)){ coffre = c; ecranVerrou(); } else accueil(1);
+  if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+demarrer();
+</script>
+</body>
+</html>
