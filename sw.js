@@ -1,9 +1,9 @@
-/* CABINET — service worker (v1.0)
+/* CABINET — service worker (v1.1)
    Permet d'installer Cabinet comme une appli et de l'ouvrir sans réseau.
    · La page : le réseau d'abord (dernière version), la copie gardée si le réseau manque ou tarde (3 s).
    · Icônes et manifeste : la copie gardée d'abord.
    · Aucune donnée ne passe ici : elles restent chiffrées dans le navigateur, jamais envoyées nulle part. */
-const CACHE = 'cabinet-v1.0';
+const CACHE = 'cabinet-v1.1';
 const FICHIERS = ['./', './index.html', './manifest.webmanifest', './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/favicon.svg'];
 const DELAI_RESEAU = 3000;
 self.addEventListener('install', e => {
