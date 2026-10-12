@@ -12,6 +12,10 @@ patients, planning des rendez-vous, notes de séance, paiements et impayés, cha
   code choisi à l'installation et par une clé de secours. Sans l'un des deux, les données sont illisibles,
   y compris dans les sauvegardes.
 - Verrouillage automatique, mode discret (initiales seulement à l'écran).
+- Option **Ne plus demander le code** (Réglages → Sécurité) : Cabinet s'ouvre directement sur ce téléphone.
+  Les données y restent chiffrées, avec une clé propre à l'appareil, mais leur protection devient celle du téléphone
+  (Face ID ou code de l'iPhone). Les sauvegardes, elles, restent protégées par le code ou la clé de secours :
+  le code est encore demandé pour restaurer. Réversible à tout moment (« Redemander le code à l'ouverture »).
 
 ## Installation sur iPhone
 

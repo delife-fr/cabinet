@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-TEPs6tp3dASbIisqq2GReB9CmXAep6Gb3vW5MMSH8jU='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-ucLdSDtdHFfdgBvQ3smxJ3o9Rydj1WuBRlxQGd/URE4='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
 <meta name="referrer" content="no-referrer">
 <title>Cabinet</title>
 <!--
-  CABINET — v1.2
+  CABINET — v1.3
   Appli de gestion pour psychologue en libéral : patients, planning des rendez-vous, notes de séance,
   paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, exports pour le comptable.
 
@@ -18,6 +18,9 @@
     elle est elle-même chiffrée deux fois : par le code (PBKDF2-SHA-256) et par la clé de secours.
     Sans l'un des deux, rien n'est lisible — ni dans le téléphone, ni dans une sauvegarde.
   · Verrouillage automatique après quelques minutes sans activité ou en quittant l'appli ; mode discret (initiales).
+  · Option « ouverture sans code » : une clé propre à l'appareil (non exportable, gardée par le navigateur) enveloppe
+    aussi la clé de données ; Cabinet s'ouvre alors sans saisie. Elle ne va jamais dans les sauvegardes, qui restent
+    protégées par le code ou la clé de secours.
 
   iPhone : à ajouter à l'écran d'accueil (Safari → Partager → Sur l'écran d'accueil). Safari efface les données d'un
   site non ouvert depuis 7 jours, mais pas celles d'une appli ajoutée à l'écran d'accueil.
@@ -30,6 +33,8 @@
 
   v1.2 : patients par ordre alphabétique du prénom (page Patients, choix du patient d'un rendez-vous), répétition
   « Tous les mois » (même jour de la semaine : le 2e mardi reste le 2e mardi), page figée derrière une fiche ouverte.
+
+  v1.3 : option « Ne plus demander le code » (Réglages → Sécurité), réversible ; le code reste demandé pour restaurer.
 
   Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
   avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
@@ -305,7 +310,7 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
 /* ==========================================================================
    A. DONNÉES — un seul objet DB, chiffré à chaque enregistrement
    ========================================================================== */
-const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.2';
+const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.3';
 const STATUTS_PATIENT = [['actif', 'En suivi', 'vert'], ['attente', 'En attente', 'jaune'], ['termine', 'Suivi terminé', 'gris']];
 const STATUTS_RDV = {prevu:['Prévu', 'bleu'], honore:['Honoré', 'vert'], absent:['Absent', 'rose'], annule:['Annulé', 'gris']};
 const MODES = [['cb', 'Carte'], ['especes', 'Espèces'], ['cheque', 'Chèque'], ['virement', 'Virement'], ['autre', 'Autre']];
@@ -455,7 +460,12 @@ function ouvrirIDB(){
 const idb = (mode, f) => ouvrirIDB().then(b => new Promise((ok, ko) => { const t = b.transaction('kv', mode), s = t.objectStore('kv'); const q = f(s); t.oncomplete = () => ok(q && q.result); t.onerror = () => ko(t.error); t.onabort = () => ko(t.error); }));
 const lireCoffre = () => idb('readonly', s => s.get('coffre'));
 const ecrireCoffre = c => idb('readwrite', s => s.put(c, 'coffre'));
-const effacerCoffre = () => idb('readwrite', s => s.delete('coffre'));
+const effacerCoffre = () => idb('readwrite', s => { s.delete('appareil'); return s.delete('coffre'); });
+/* Ouverture sans code (option) : une clé propre à cet appareil, non exportable et gardée par le navigateur, enveloppe
+   aussi la clé de données. Elle ne quitte jamais le téléphone : ni elle ni son enveloppe ne vont dans une sauvegarde. */
+const lireCleAppareil = () => idb('readonly', s => s.get('appareil'));
+const ecrireCleAppareil = k => idb('readwrite', s => s.put(k, 'appareil'));
+const effacerCleAppareil = () => idb('readwrite', s => s.delete('appareil'));
 
 let cleDonnees = null, coffre = null;   /* en mémoire seulement pendant que l'appli est déverrouillée */
 const verifCoffre = c => c && c.app === 'cabinet' && c.v === 1 && c.sel && c.cle && c.cle.code && c.cle.secours && c.donnees && c.donnees.iv && c.donnees.ct;
@@ -486,6 +496,26 @@ async function changerEnveloppe(quoi, secret, brut){
 }
 const changerCode = (brut, nouveau) => changerEnveloppe('code', nouveau, brut);
 const changerSecours = (brut, nouvelle) => changerEnveloppe('secours', normSecours(nouvelle), brut);
+const sansCode = () => !!(coffre && coffre.cle && coffre.cle.appareil);
+async function activerSansCode(brut){
+  let cle = await lireCleAppareil();
+  if(!cle){ cle = await crypto.subtle.generateKey({name:'AES-GCM', length:256}, false, ['encrypt', 'decrypt']); await ecrireCleAppareil(cle); }
+  coffre.cle.appareil = await chiffrer(cle, brut);
+  try { await ecrireCoffre(coffre); } catch(e){ delete coffre.cle.appareil; throw e; }
+}
+async function desactiverSansCode(){
+  const avant = coffre.cle.appareil; delete coffre.cle.appareil;
+  try { await ecrireCoffre(coffre); } catch(e){ coffre.cle.appareil = avant; throw e; }
+  try { await effacerCleAppareil(); } catch(e){ /* sans son enveloppe, la clé seule n'ouvre rien */ }
+}
+/* Renvoie les données ouvertes avec la clé de l'appareil, ou null (clé absente ou effacée par le navigateur) */
+async function ouvrirSansCode(c){
+  try {
+    const cle = await lireCleAppareil(); if(!cle) return null;
+    const brut = await dechiffrer(cle, c.cle.appareil), k = await importerCle(brut); brut.fill(0);
+    return {cle:k, donnees:JSON.parse(dec.decode(await dechiffrer(k, c.donnees)))};
+  } catch(e){ return null; }
+}
 
 /* Enregistrement : chiffré puis écrit, regroupé (300 ms), forcé quand l'appli passe en arrière-plan */
 let minuterieSauver = 0, enCoursSauver = null, aSauver = false;
@@ -852,6 +882,8 @@ async function deverrouiller(f, parSecours){
   ecrireEssais({n:0, jusqua:0});
   cleDonnees = r.cle; DB = normaliser(r.donnees);
   if(ecriturePendante){ ecriturePendante = false; sauver(); }   /* rechiffré et réécrit maintenant que la clé est là */
+  /* Ouverture sans code active mais qui a échoué (clé de l'appareil effacée) : réparée avec la clé de données */
+  if(sansCode()) try { await activerSansCode(r.brut); } catch(e){ /* le code restera demandé */ }
   if(parSecours){ const brut = r.brut; return nouveauCodeApresSecours(brut); }
   r.brut.fill(0); demanderPersistance(); ouvrirAppli();
 }
@@ -869,7 +901,7 @@ function nouveauCodeApresSecours(brut){
 }
 const verifNouveauCode = (a, b) => String(a || '').length < 6 ? 'Le code doit faire 6 caractères au moins.' : a !== b ? 'Les deux saisies sont différentes.' : '';
 async function verrouiller(){
-  if(etat !== 'ouvert') return;
+  if(etat !== 'ouvert' || sansCode()) return;   /* ouverture sans code : verrouiller ne protégerait rien */
   await ecrireMaintenant();
   if(enCoursSauver) await enCoursSauver;   /* une écriture déjà lancée : attendre son résultat */
   if(aSauver) await ecrireMaintenant();    /* échec : un second essai tant que la clé est là */
@@ -906,7 +938,7 @@ function rendre(){
   const page = ROUTES[r.nom](r.id);
   const droite = (page.plus ? `<button type="button" class="rond" data-action="${page.plus}" aria-label="${esc(page.plusLabel || 'Ajouter')}">${ico('plus', 19)}</button>` : '') +
     `<button type="button" class="rond${DB.reglages.discret ? ' on' : ''}" data-action="discret" aria-pressed="${DB.reglages.discret}" aria-label="${DB.reglages.discret ? 'Afficher les noms' : 'Mode discret : initiales seulement'}" title="Mode discret">${ico(DB.reglages.discret ? 'oeilBarre' : 'oeil', 18)}</button>` +
-    `<button type="button" class="rond" data-action="verrouiller" aria-label="Verrouiller" title="Verrouiller">${ico('cadenas', 18)}</button>`;
+    (sansCode() ? '' : `<button type="button" class="rond" data-action="verrouiller" aria-label="Verrouiller" title="Verrouiller">${ico('cadenas', 18)}</button>`);
   $('#barre').innerHTML = (page.retour ? `<a class="rond retour" href="${page.retour}" aria-label="Retour">${ico('chevronG', 20)}</a>` : '') + `<h1>${esc(page.titre)}</h1>` + droite;
   $('#vue').innerHTML = page.html;
   const nb = {aujourdhui:aPointer().length, finances:new Set(impayes().map(x => x.patient)).size};
@@ -1410,9 +1442,11 @@ function pageReglages(){
     <div class="boutons">${btn('sauvegarder', ico('telecharger', 16) + 'Sauvegarder maintenant', 'btn p')}${btn('restaurer', ico('importer', 16) + 'Restaurer', 'btn')}</div>
     <label class="champ" style="margin:14px 0 0"><span>Me le rappeler</span><select data-reglage="rappelSauvegarde">${rappels.map(([v, t]) => `<option value="${v}"${r.rappelSauvegarde === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label></div>`;
   html += `<div class="section-titre">Sécurité</div><div class="carte">
-    <label class="champ"><span>Verrouillage automatique</span><select data-reglage="verrou">${delais.map(([v, t]) => `<option value="${v}"${r.verrou === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+    ${sansCode() ? `<p style="margin:0 0 4px"><strong>Ouverture sans code sur cet appareil</strong></p>
+    <p class="aide">Cabinet s’ouvre directement : sa protection est celle du téléphone (Face ID ou code de l’iPhone). Le code reste demandé pour restaurer une sauvegarde : ne l’oubliez pas.</p>`
+      : `<label class="champ"><span>Verrouillage automatique</span><select data-reglage="verrou">${delais.map(([v, t]) => `<option value="${v}"${r.verrou === v ? ' selected' : ''}>${t}</option>`).join('')}</select></label>`}
     <label class="case-ligne"><input type="checkbox" data-reglage="discret"${r.discret ? ' checked' : ''}><span>Mode discret : initiales seulement, notes et coordonnées masquées<br><span class="faible" style="font-size:13px">aussi avec l’œil de la barre du haut</span></span></label>
-    <div class="boutons">${btn('verrouiller', ico('cadenas', 16) + 'Verrouiller', 'btn')}${btn('code-changer', ico('cle', 16) + 'Changer le code', 'btn')}${btn('secours-changer', 'Nouvelle clé de secours', 'btn')}</div></div>`;
+    <div class="boutons">${sansCode() ? btn('sans-code-non', ico('cadenas', 16) + 'Redemander le code à l’ouverture', 'btn') : btn('verrouiller', ico('cadenas', 16) + 'Verrouiller', 'btn') + btn('sans-code-oui', 'Ne plus demander le code', 'btn')}${btn('code-changer', ico('cle', 16) + 'Changer le code', 'btn')}${btn('secours-changer', 'Nouvelle clé de secours', 'btn')}</div></div>`;
   html += `<div class="section-titre">Cabinet<span class="droite">${btn('reg-cabinet', ico('crayon', 15) + 'Modifier', 'btn f petit')}</span></div><div class="carte" style="padding:4px 14px"><ul class="liste">
     ${ligneReglage('Praticien', esc([r.praticien, r.profession].filter(Boolean).join(' · ')))}${ligneReglage('Adresse', esc(r.adresse))}${ligneReglage('Contact', esc([r.telephone, r.email].filter(Boolean).join(' · ')))}
     ${ligneReglage('ADELI / RPPS · SIRET', esc([r.adeli, r.siret].filter(Boolean).join(' · ')))}</ul></div>`;
@@ -1465,6 +1499,17 @@ function formChangerCode(){
       fermer(true); toast('Code changé');
     }});
 }
+/* Ouverture sans code : le code est demandé une dernière fois (il faut la clé de données pour l'envelopper) */
+function formSansCode(){
+  formulaire({titre:'Ne plus demander le code', ok:'Ouvrir sans code', avant:`<p class="aide">Cabinet s’ouvrira directement sur cet appareil. Les données restent chiffrées dans le téléphone, mais toute personne qui a votre iPhone déverrouillé en main pourra les lire : gardez Face ID ou un code sur l’iPhone.</p>
+      <p class="aide">Le code reste nécessaire pour restaurer une sauvegarde et pour le changer : ne l’oubliez pas, et gardez la clé de secours.</p>`,
+    champs:[{n:'actuel', l:'Code actuel', t:'mdp', attrs:'autofocus'}], onOk:async v => {
+      let r; try { r = await ouvrirCoffre(coffre, v.actuel); } catch(e){ return 'Données illisibles : ' + (e && e.message || e) + '.'; }
+      if(!r) return 'Code incorrect.';
+      try { await activerSansCode(r.brut); } catch(e){ return 'Impossible sur cet appareil : ' + (e && e.message || e) + '.'; } finally { r.brut.fill(0); }
+      fermer(true); rendre(); toast('Cabinet s’ouvrira désormais sans code');
+    }});
+}
 function formNouvelleSecours(){
   formulaire({titre:'Nouvelle clé de secours', ok:'Continuer', avant:'<p class="aide">L’ancienne clé ne fonctionnera plus. Les sauvegardes déjà faites restent ouvrables avec l’ancienne clé ou le code de l’époque.</p>',
     champs:[{n:'actuel', l:'Code actuel', t:'mdp', attrs:'autofocus'}], onOk:async v => {
@@ -1481,7 +1526,8 @@ function formNouvelleSecours(){
 /* --- Sauvegarde et restauration (le coffre tel quel : déjà chiffré) --- */
 async function sauvegarder(){
   await ecrireMaintenant();
-  const contenu = JSON.stringify({app:coffre.app, v:coffre.v, iter:coffre.iter, sel:coffre.sel, cle:coffre.cle, donnees:coffre.donnees, maj:coffre.maj, sauvegarde:maintenant(),
+  /* Seulement les enveloppes du code et de la clé de secours : celle de l'appareil n'ouvrirait rien ailleurs */
+  const contenu = JSON.stringify({app:coffre.app, v:coffre.v, iter:coffre.iter, sel:coffre.sel, cle:{code:coffre.cle.code, secours:coffre.cle.secours}, donnees:coffre.donnees, maj:coffre.maj, sauvegarde:maintenant(),
     lisezmoi:'Sauvegarde chiffrée de Cabinet. Illisible sans le code ou la clé de secours en vigueur au moment de la sauvegarde. Pour la restaurer : Cabinet → Réglages → Restaurer.'}, null, 1);
   const d = new Date(), nom = 'cabinet-sauvegarde-' + aujourdhui() + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.json';
   const ok = await partagerFichier(nom, contenu, 'application/json');
@@ -1493,7 +1539,7 @@ function restaurer(){
     const f = inp.files && inp.files[0]; if(!f) return;
     let c = null; try { c = JSON.parse(await f.text()); } catch(e){ c = null; }
     if(!verifCoffre(c)) return toast('Ce fichier n’est pas une sauvegarde de Cabinet.');
-    c = {app:c.app, v:c.v, iter:c.iter, sel:c.sel, cle:c.cle, donnees:c.donnees, maj:c.maj};
+    c = {app:c.app, v:c.v, iter:c.iter, sel:c.sel, cle:{code:c.cle.code, secours:c.cle.secours}, donnees:c.donnees, maj:c.maj};
     formulaire({titre:'Restaurer une sauvegarde', ok:'Ouvrir la sauvegarde', avant:`<p class="aide">Sauvegarde du ${esc(jourLocal(c.maj) ? dateMoyenne(jourLocal(c.maj)) : '?')}. Saisissez le code en vigueur à ce moment-là, ou la clé de secours.</p>`,
       champs:[{n:'secret', l:'Code ou clé de secours', t:'mdp', attrs:'autofocus'}, {n:'parSecours', l:'C’est la clé de secours', t:'case'}],
       onOk:async v => {
@@ -1503,8 +1549,10 @@ function restaurer(){
         const d = normaliser(r.donnees);
         if(etat === 'ouvert' && !(await confirmer({titre:'Remplacer les données ?', texte:`Les données actuelles (${pluriel(DB.patients.length, 'patient')}) seront remplacées par celles de la sauvegarde (${pluriel(d.patients.length, 'patient')}). Pensez à sauvegarder d’abord les données actuelles si besoin.`, ok:'Remplacer', danger:true}))){ r.brut.fill(0); return; }
         fermer(true);
+        const garderSansCode = sansCode();
         try { await ecrireCoffre(c); } catch(e){ r.brut.fill(0); return toast('Restauration impossible, rien n’a été changé : ' + (e && e.message || e)); }
         coffre = c; cleDonnees = r.cle; DB = d;
+        if(garderSansCode) try { await activerSansCode(r.brut); } catch(e){ toast('Le code sera de nouveau demandé à l’ouverture'); }
         if(v.parSecours) return nouveauCodeApresSecours(r.brut);
         r.brut.fill(0); demanderPersistance(); ouvrirAppli(); toast('Sauvegarde restaurée');
       }});
@@ -1744,6 +1792,11 @@ const ACTIONS = {
   'reg-cabinet':() => formReglages('cabinet'), 'reg-seances':() => formReglages('seances'), 'reg-finances':() => formReglages('finances'), 'reg-messages':() => formReglages('messages'),
   'code-changer':() => formChangerCode(),
   'secours-changer':() => formNouvelleSecours(),
+  'sans-code-oui':() => formSansCode(),
+  'sans-code-non':async () => {
+    if(!(await confirmer({titre:'Redemander le code ?', texte:'Le code sera demandé à chaque ouverture de Cabinet sur cet appareil, et le verrouillage automatique reprendra.', ok:'Redemander le code'}))) return;
+    try { await desactiverSansCode(); rendre(); toast('Le code sera demandé à chaque ouverture'); } catch(e){ toast('Impossible : ' + (e && e.message || e)); }
+  },
   sauvegarder:() => sauvegarder(),
   restaurer:() => restaurer(),
   'import-csv':() => importerCsv(),
@@ -1797,7 +1850,13 @@ async function demarrer(){
   let c;
   try { c = await lireCoffre(); }
   catch(e){ return ecran(`${logo()}<h1>Cabinet</h1><p class="sous">Le stockage de ce navigateur est indisponible (navigation privée ?). Ouvrez Cabinet normalement, ou depuis l’écran d’accueil.</p><p class="faible" style="text-align:center;font-size:13px">${esc(e && e.message || e)}</p>`); }
-  if(verifCoffre(c)){ coffre = c; ecranVerrou(); } else accueil(1);
+  if(!verifCoffre(c)) accueil(1);
+  else if(c.cle.appareil){
+    coffre = c; const r = await ouvrirSansCode(c);
+    if(r){ cleDonnees = r.cle; DB = normaliser(r.donnees); demanderPersistance(); ouvrirAppli(); }
+    else { ecranVerrou(); const er = $('#err'); er.textContent = 'L’ouverture sans code n’a pas fonctionné sur cet appareil : saisissez votre code (elle sera rétablie).'; er.hidden = false; }
+  }
+  else { coffre = c; ecranVerrou(); }
   if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 demarrer();
