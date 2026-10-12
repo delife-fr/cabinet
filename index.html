@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-PEAF1hBmFg7jDSOv4XfSYTj/n7m/zLp81gyy+4d1TNI='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-TEPs6tp3dASbIisqq2GReB9CmXAep6Gb3vW5MMSH8jU='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
 <meta name="referrer" content="no-referrer">
 <title>Cabinet</title>
 <!--
-  CABINET — v1.1.1
+  CABINET — v1.2
   Appli de gestion pour psychologue en libéral : patients, planning des rendez-vous, notes de séance,
   paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, exports pour le comptable.
 
@@ -27,6 +27,9 @@
 
   v1.1.1 : exports CSV protégés contre les formules, années sur 2 chiffres de l'import (naissance en 19xx), sauvegarde
   abîmée signalée, modifications gardées si l'écriture échoue au verrouillage, dates des sauvegardes à l'heure locale.
+
+  v1.2 : patients par ordre alphabétique du prénom (page Patients, choix du patient d'un rendez-vous), répétition
+  « Tous les mois » (même jour de la semaine : le 2e mardi reste le 2e mardi), page figée derrière une fiche ouverte.
 
   Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
   avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
@@ -302,7 +305,7 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
 /* ==========================================================================
    A. DONNÉES — un seul objet DB, chiffré à chaque enregistrement
    ========================================================================== */
-const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.1.1';
+const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.2';
 const STATUTS_PATIENT = [['actif', 'En suivi', 'vert'], ['attente', 'En attente', 'jaune'], ['termine', 'Suivi terminé', 'gris']];
 const STATUTS_RDV = {prevu:['Prévu', 'bleu'], honore:['Honoré', 'vert'], absent:['Absent', 'rose'], annule:['Annulé', 'gris']};
 const MODES = [['cb', 'Carte'], ['especes', 'Espèces'], ['cheque', 'Chèque'], ['virement', 'Virement'], ['autre', 'Autre']];
@@ -376,6 +379,14 @@ const lundiDe = j => { const d = versDate(j); return decale(j, -((d.getDay() + 6
 const moisDe = j => j.slice(0, 7);
 const joursDansMois = ym => { const [a, m] = ym.split('-').map(Number); return new Date(a, m, 0).getDate(); };
 const decaleMois = (ym, n) => { const [a, m] = ym.split('-').map(Number); const d = new Date(a, m - 1 + n, 1); return d.getFullYear() + '-' + pad(d.getMonth() + 1); };
+/* Même jour de la semaine n mois plus tard : le 2e mardi reste le 2e mardi ; un 5e qui n'existe pas devient le dernier */
+function memeJourMois(j, n){
+  const d = versDate(j), rang = Math.ceil(d.getDate() / 7), ym = decaleMois(moisDe(j), n), [a, m] = ym.split('-').map(Number);
+  let jour = 1 + (d.getDay() - new Date(a, m - 1, 1).getDay() + 7) % 7 + (rang - 1) * 7;
+  if(jour > joursDansMois(ym)) jour -= 7;
+  return ym + '-' + pad(jour);
+}
+const libelleMensuel = j => { const d = versDate(j); return 'Tous les mois' + (d ? ' (' + ['1er', '2e', '3e', '4e', 'dernier'][Math.ceil(d.getDate() / 7) - 1] + ' ' + F.jour.format(d) + ')' : ''); };
 const minutes = h => { const [a, b] = h.split(':').map(Number); return a * 60 + b; };
 const versHeure = m => pad(Math.floor(m / 60) % 24) + ':' + pad(m % 60);
 const finRdv = r => versHeure(minutes(r.heure) + r.duree);
@@ -383,6 +394,7 @@ const heureMaintenant = () => { const d = new Date(); return pad(d.getHours()) +
 const majuscule = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
 const F = {
   long:new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'numeric', month:'long'}),
+  jour:new Intl.DateTimeFormat('fr-FR', {weekday:'long'}),
   longAn:new Intl.DateTimeFormat('fr-FR', {weekday:'long', day:'numeric', month:'long', year:'numeric'}),
   moyen:new Intl.DateTimeFormat('fr-FR', {day:'numeric', month:'long', year:'numeric'}),
   court:new Intl.DateTimeFormat('fr-FR', {day:'numeric', month:'short'}),
@@ -681,6 +693,19 @@ function fermer(silencieux = false){
   if(focusAvant && focusAvant.isConnected && !silencieux) try { focusAvant.focus({preventScroll:true}); } catch(e){ /* rien */ }
 }
 const feuilleOuverte = () => !!$('#voile');
+/* iPhone : Safari laisse défiler la page derrière une fiche (overflow:hidden ne suffit pas). Fiche ouverte, un glissé
+   du doigt ne passe que s'il fait défiler, dans son sens, la fiche ou un champ qu'elle contient ; sinon il est bloqué. */
+let toucheY = 0;
+document.addEventListener('touchstart', e => { if(e.touches.length === 1) toucheY = e.touches[0].clientY; }, {passive:true});
+document.addEventListener('touchmove', e => {
+  if(!feuilleOuverte() || e.touches.length !== 1) return;
+  const y = e.touches[0].clientY, dy = y - toucheY; toucheY = y;
+  for(let el = e.target; el && el !== document.body; el = el.parentElement){
+    if(el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY)
+      && (dy > 0 ? el.scrollTop > 0 : dy < 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : true)) return;
+  }
+  if(e.cancelable) e.preventDefault();
+}, {passive:false});
 
 /* --- Formulaire générique ---
    champs : {n, l, t:'texte'|'tel'|'email'|'date'|'heure'|'nombre'|'montant'|'select'|'zone'|'case'|'mdp'|'html', v, o:[{v,t}], aide, demi, requis, attrs}
@@ -964,7 +989,9 @@ function pagePlanning(){
 
 /* --- Patients : en suivi, en attente (liste d'attente), terminés ; recherche --- */
 let ongletPatients = 'actif', recherchePatients = '';
-const trierPatients = l => l.slice().sort((a, b) => (a.nom + ' ' + a.prenom).localeCompare(b.nom + ' ' + b.prenom, 'fr'));
+/* Ordre alphabétique de ce qui est affiché : prénom puis nom (accents et majuscules ignorés) */
+const COLLATION = new Intl.Collator('fr', {sensitivity:'base', numeric:true});
+const trierPatients = l => l.slice().sort((a, b) => COLLATION.compare(nomComplet(a), nomComplet(b)));
 function lignePatient(p){
   const pr = prochains(p.id)[0], rs = somme(seancesDe(p.id).map(reste)), der = seancesDe(p.id).find(r => r.statut === 'honore');
   const sous = p.statut === 'attente' ? 'En attente' + (p.demande ? ' depuis le ' + dateCourte(p.demande) : '') + (p.motif && !DB.reglages.discret ? ' · ' + p.motif : '')
@@ -1066,7 +1093,7 @@ function formRdv(r0 = {}, {bloque = false} = {}){
     {n:'duree', l:'Durée (min)', t:'nombre', v:r.duree || (estBloque ? 60 : dureeDe(p)), demi:true});
   if(!estBloque) champs.push({n:'lieu', l:'Lieu', t:'select', o:LIEUX.map(x => ({v:x, t:x})), v:r.lieu || 'Cabinet', demi:true}, {n:'montant', l:'Montant', t:'montant', v:r.montant ?? tarifDe(p)});
   else champs.push({n:'lieu', l:'Lieu', v:r.lieu && r.lieu !== 'Cabinet' ? r.lieu : '', demi:true, aide:'facultatif'});
-  if(!ex) champs.push({n:'repete', l:'Répétition', t:'select', o:[{v:'', t:'Une seule fois'}, {v:'7', t:'Chaque semaine'}, {v:'14', t:'Toutes les 2 semaines'}], v:'', demi:true},
+  if(!ex) champs.push({n:'repete', l:'Répétition', t:'select', o:[{v:'', t:'Une seule fois'}, {v:'7', t:'Chaque semaine'}, {v:'14', t:'Toutes les 2 semaines'}, {v:'mois', t:libelleMensuel(r.date || aujourdhui())}], v:'', demi:true},
     {n:'nombre', l:'Nombre de séances', t:'nombre', v:'10', demi:true, aide:'si répété'});
   else if(ex.serie) champs.push({n:'suite', l:'Appliquer aussi aux rendez-vous suivants de la série', t:'case', aide:'heure, durée, lieu' + (estBloque ? '' : ', montant') + ' (pas la date)'});
   champs.push({n:'note', l:'Remarque', v:r.note, aide:'visible dans le planning, ex. « 1re séance »'});
@@ -1074,6 +1101,9 @@ function formRdv(r0 = {}, {bloque = false} = {}){
     suppr:ex ? () => supprimerRdv(ex.id) : null,
     fermeture:ex ? () => ficheRdv(ex.id) : null,
     apres:(v, f) => {
+      /* « Tous les mois (2e mardi) » suit la date choisie */
+      const mensuel = $('[name="repete"] option[value="mois"]', f), date = $('[name="date"]', f);
+      if(mensuel && date) date.addEventListener('change', () => { if(dateValide(date.value)) mensuel.textContent = libelleMensuel(date.value); });
       const sel = $('[name="patient"]', f); if(!sel) return;
       sel.addEventListener('change', () => {
         if(sel.value === '__nouveau'){ const garde = lireForm(f); fermer(true); return formPatient({}, {puis:id => formRdv({...garde, patient:id, montant:tarifDe(unPatient(id)), duree:dureeDe(unPatient(id))})}); }
@@ -1086,8 +1116,8 @@ function formRdv(r0 = {}, {bloque = false} = {}){
       const duree = Math.round(nombre(v.duree, 0)); if(duree < 5 || duree > 600) return 'Durée entre 5 et 600 minutes.';
       const base = {patient:estBloque ? '' : v.patient, titre:estBloque ? txt(v.titre) || 'Créneau bloqué' : '', heure:v.heure, duree, lieu:estBloque ? txt(v.lieu) : v.lieu,
         montant:estBloque ? 0 : nombre(v.montant, 0), note:txt(v.note), modif:maintenant()};
-      const pas = Number(v.repete) || 0, n = pas ? Math.min(60, Math.max(1, Math.round(nombre(v.nombre, 10)))) : 1;
-      const dates = Array.from({length:n}, (_, i) => decale(v.date, i * pas));
+      const mensuel = v.repete === 'mois', pas = Number(v.repete) || 0, n = pas || mensuel ? Math.min(60, Math.max(1, Math.round(nombre(v.nombre, 10)))) : 1;
+      const dates = Array.from({length:n}, (_, i) => mensuel ? memeJourMois(v.date, i) : decale(v.date, i * pas));
       const conflits = dates.flatMap(d => chevauchements({id:ex ? ex.id : '', date:d, heure:v.heure, duree}).map(x => [d, x]));
       const cle = JSON.stringify([dates, v.heure, duree]);
       if(conflits.length && confirmeChevauche !== cle){ confirmeChevauche = cle; const [d, x] = conflits[0];
