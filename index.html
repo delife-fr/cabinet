@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-x3YdqVQEIi1s6FU1BFykfEEX1aGMSSFCwF9rQekSij0='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-O8gsJqD74M3RPGFqr87cnIlwcdaIjPGifSs+qNaCCvI='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
 <meta name="referrer" content="no-referrer">
 <title>Cabinet</title>
 <!--
-  CABINET — v1.0
+  CABINET — v1.1
   Appli de gestion pour psychologue en libéral : patients, planning des rendez-vous, notes de séance,
   paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, exports pour le comptable.
 
@@ -21,6 +21,9 @@
 
   iPhone : à ajouter à l'écran d'accueil (Safari → Partager → Sur l'écran d'accueil). Safari efface les données d'un
   site non ouvert depuis 7 jours, mais pas celles d'une appli ajoutée à l'écran d'accueil.
+
+  v1.1 : import de patients depuis un fichier CSV (export « Clients » de facture.net reconnu tel quel), lu dans le
+  téléphone : correspondance des colonnes, statut selon la dernière facture, doublons écartés, annulable.
 
   Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
   avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
@@ -296,7 +299,7 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
 /* ==========================================================================
    A. DONNÉES — un seul objet DB, chiffré à chaque enregistrement
    ========================================================================== */
-const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.0';
+const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.1';
 const STATUTS_PATIENT = [['actif', 'En suivi', 'vert'], ['attente', 'En attente', 'jaune'], ['termine', 'Suivi terminé', 'gris']];
 const STATUTS_RDV = {prevu:['Prévu', 'bleu'], honore:['Honoré', 'vert'], absent:['Absent', 'rose'], annule:['Annulé', 'gris']};
 const MODES = [['cb', 'Carte'], ['especes', 'Espèces'], ['cheque', 'Chèque'], ['virement', 'Virement'], ['autre', 'Autre']];
@@ -336,7 +339,7 @@ function normaliser(d){
   const patients = liste('patients').map(p => ({id:id(p), nom:txt(p.nom), prenom:txt(p.prenom), naissance:dateValide(p.naissance), telephone:txt(p.telephone), email:txt(p.email),
     adresse:txt(p.adresse), adressePar:txt(p.adressePar), medecin:txt(p.medecin), motif:txt(p.motif), statut:unDe(p.statut, ['actif', 'attente', 'termine'], 'actif'),
     debut:dateValide(p.debut), demande:dateValide(p.demande), tarif:p.tarif === '' || p.tarif == null ? null : nombre(p.tarif, null), duree:p.duree ? Math.round(nombre(p.duree, 0)) || null : null,
-    infos:txt(p.infos), couleur:Math.abs(Math.round(nombre(p.couleur, 0))) % 6, demo:!!p.demo || undefined, cree:cree(p), modif:txt(p.modif) || cree(p)}));
+    infos:txt(p.infos), couleur:Math.abs(Math.round(nombre(p.couleur, 0))) % 6, demo:!!p.demo || undefined, import:txt(p.import) || undefined, cree:cree(p), modif:txt(p.modif) || cree(p)}));
   const rdv = liste('rdv').filter(x => dateValide(x.date) && heureValide(x.heure)).map(x => ({id:id(x), patient:txt(x.patient), titre:txt(x.titre), date:x.date, heure:x.heure,
     duree:Math.min(600, Math.max(5, Math.round(nombre(x.duree, 50)))), lieu:txt(x.lieu) || 'Cabinet', statut:unDe(x.statut, Object.keys(STATUTS_RDV), 'prevu'),
     facturer:x.facturer !== false, montant:nombre(x.montant, 0), regle:x.regle && typeof x.regle === 'object' && nombre(x.regle.montant, 0) > 0
@@ -1346,7 +1349,7 @@ function appliquerTheme(v){
 }
 const majCouleurBarre = () => { const m = $('meta[name="theme-color"]'); if(m) m.content = getComputedStyle(document.documentElement).getPropertyValue('--fond').trim() || '#f5f4f2'; };
 function pageReglages(){
-  const r = DB.reglages, th = lireTheme(), nbEx = DB.patients.filter(p => p.demo).length;
+  const r = DB.reglages, th = lireTheme(), nbEx = DB.patients.filter(p => p.demo).length, nbImp = DB.patients.filter(p => p.import).length;
   const segTheme = [['auto', 'Comme le téléphone'], ['clair', 'Clair'], ['sombre', 'Sombre']].map(([v, t]) => `<button type="button" class="${th === v ? 'on' : ''}" data-action="theme" data-v="${v}" aria-pressed="${th === v}">${t}</button>`).join('');
   const delais = [[0, 'Dès que je quitte l’appli'], [1, 'Après 1 minute'], [2, 'Après 2 minutes'], [5, 'Après 5 minutes'], [10, 'Après 10 minutes'], [15, 'Après 15 minutes'], [30, 'Après 30 minutes']];
   const rappels = [[0, 'Jamais'], [3, 'Tous les 3 jours'], [7, 'Chaque semaine'], [14, 'Toutes les 2 semaines'], [30, 'Chaque mois']];
@@ -1374,6 +1377,7 @@ function pageReglages(){
     ${ligneReglage('Rappel de rendez-vous (SMS)', esc(r.modeleRappel))}${ligneReglage('Relance d’impayé', esc(r.modeleRelance))}</ul></div>`;
   html += `<div class="section-titre">Apparence</div><div class="carte"><div class="segment" role="group" aria-label="Apparence" style="display:flex">${segTheme.replace(/<button /g, '<button style="flex:1" ')}</div></div>`;
   html += `<div class="section-titre">Données</div><div class="carte"><p class="aide">${pluriel(DB.patients.length, 'patient')}, ${pluriel(DB.rdv.length, 'rendez-vous', 'rendez-vous')}, ${pluriel(DB.notes.length, 'note')}. Tout est chiffré et ne quitte jamais cet appareil.</p>
+    <div class="boutons" style="margin-bottom:10px">${btn('import-csv', ico('importer', 16) + 'Importer des patients (CSV)', 'btn')}${nbImp ? btn('import-retirer', 'Retirer les patients importés', 'btn') : ''}</div>
     <div class="boutons">${nbEx ? btn('exemples-retirer', 'Retirer les ' + pluriel(nbEx, 'patient') + ' d’exemple', 'btn') : btn('exemples', 'Ajouter des exemples', 'btn')}${btn('tout-effacer', ico('corbeille', 16) + 'Tout effacer', 'btn danger')}</div></div>`;
   html += `<p class="aide" style="text-align:center;margin-top:18px" id="a-propos">Cabinet ${VERSION_APPLI} · ${installee() ? 'installée sur l’écran d’accueil' : estIOS() ? '<strong style="color:var(--rose)">pas encore installée sur l’écran d’accueil</strong>' : 'dans le navigateur'}</p>`;
   return {titre:'Réglages', html, apres:async () => {
@@ -1451,6 +1455,121 @@ function restaurer(){
       }});
   };
   inp.click();
+}
+
+/* --- Import de patients depuis un fichier CSV (export « Clients » de facture.net, ou autre) ---
+   Le fichier est lu dans le téléphone, rien n'est envoyé. Colonnes reconnues par leur nom (sans accents ni majuscules),
+   corrigeables à l'écran ; doublons écartés (même nom, e-mail ou téléphone) ; import annulable. */
+const CHAMPS_IMPORT = [
+  ['prenom', 'Prénom', ['prenom', 'first name', 'firstname', 'given name']],
+  ['nom', 'Nom', ['nom de famille', 'nom', 'last name', 'lastname', 'family name', 'name']],
+  ['societe', 'Société', ['societe', 'entreprise', 'company', 'raison sociale', 'organisation']],
+  ['email', 'E-mail', ['adresse email', 'adresse e-mail', 'email', 'e-mail', 'courriel', 'mail']],
+  ['telephone', 'Téléphone', ['numero(s) de telephone', 'numeros de telephone', 'numero de telephone', 'telephone', 'tel', 'tel.', 'mobile', 'portable', 'phone']],
+  ['adresse', 'Adresse', ['adresse', 'adresse postale', 'address', 'rue']],
+  ['complement', 'Complément d’adresse', ['complement d\'adresse', 'complement d’adresse', 'complement']],
+  ['cp', 'Code postal', ['code postal', 'cp', 'zip', 'postal code']],
+  ['ville', 'Ville', ['ville', 'city', 'commune']],
+  ['pays', 'Pays', ['pays', 'country']],
+  ['naissance', 'Date de naissance', ['date de naissance', 'naissance', 'birthday']],
+  ['creation', 'Date de création (→ début du suivi)', ['date de creation', 'cree le', 'creation', 'created']],
+  ['derniere', 'Date de dernière facture', ['date de derniere facture', 'derniere facture']],
+  ['motsCles', 'Mots clés', ['mots cles', 'mots-cles', 'mots clefs', 'tags', 'etiquettes']],
+  ['notes', 'Notes', ['notes', 'note', 'commentaire', 'commentaires', 'remarques']]
+];
+const normEntete = h => norm(String(h || '').replace(/^﻿/, '').replace(/^"|"$/g, '')).replace(/\s+/g, ' ').trim();
+async function lireTexteFichier(f){ const buf = await f.arrayBuffer(); try { return new TextDecoder('utf-8', {fatal:true}).decode(buf); } catch(e){ return new TextDecoder('windows-1252').decode(buf); } }
+/* CSV : séparateur deviné sur la 1re ligne (; , ou tabulation), champs entre guillemets (avec "" et retours à la ligne) */
+function lireCsv(t){
+  t = String(t || '').replace(/^﻿/, '');
+  const tete = t.split(/\r?\n/)[0] || '', sep = [';', ',', '\t'].map(x => [x, tete.split(x).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const lignes = []; let ligne = [], champ = '', guil = false;
+  for(let i = 0; i < t.length; i++){
+    const c = t[i];
+    if(guil){ if(c === '"'){ if(t[i + 1] === '"'){ champ += '"'; i++; } else guil = false; } else champ += c; }
+    else if(c === '"' && champ === '') guil = true;
+    else if(c === sep){ ligne.push(champ); champ = ''; }
+    else if(c === '\n' || c === '\r'){ if(c === '\r' && t[i + 1] === '\n') i++; ligne.push(champ); lignes.push(ligne); ligne = []; champ = ''; }
+    else champ += c;
+  }
+  if(champ !== '' || ligne.length){ ligne.push(champ); lignes.push(ligne); }
+  return lignes.filter(l => l.some(x => String(x).trim()));
+}
+/* Dates : 2026-10-09, 09/10/2026, 9.10.26… (date réelle seulement : pas de 31/02) */
+function dateImport(s){
+  s = txt(s); let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/), d = '';
+  if(m) d = m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]);
+  else if((m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})\b/))) d = (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + pad(+m[2]) + '-' + pad(+m[1]);
+  return d && versDate(d) && iso(versDate(d)) === d ? d : '';
+}
+const chiffresTel = t => String(t || '').replace(/\D/g, '').slice(-9);
+function analyserImport(lignes, corr, opt){
+  const deja = {noms:new Set(DB.patients.map(p => norm(p.prenom + ' ' + p.nom).trim())), mails:new Set(DB.patients.map(p => norm(p.email)).filter(Boolean)), tels:new Set(DB.patients.map(p => chiffresTel(p.telephone)).filter(x => x.length === 9))};
+  const res = {nouveaux:[], doublons:0, societes:0, vides:0}, limite = decale(aujourdhui(), -91);
+  for(const l of lignes){
+    const v = k => corr[k] >= 0 ? txt(l[corr[k]]).replace(/\s+/g, ' ') : '';
+    let prenom = v('prenom'), nom = v('nom'); const societe = v('societe'), estSociete = !prenom && !nom && !!societe;
+    if(estSociete){ if(!opt.societes){ res.societes++; continue; } nom = societe; }
+    if(!prenom && !nom){ res.vides++; continue; }
+    const tels = (corr.telephone >= 0 ? txt(l[corr.telephone]) : '').split(/[,;/|\n]+|\s-\s/).map(x => x.trim()).filter(Boolean);
+    const email = v('email'), cle = norm(prenom + ' ' + nom).trim(), mail = norm(email), tel = chiffresTel(tels[0]);
+    if(deja.noms.has(cle) || (mail && deja.mails.has(mail)) || (tel.length === 9 && deja.tels.has(tel))){ res.doublons++; continue; }
+    deja.noms.add(cle); if(mail) deja.mails.add(mail); if(tel.length === 9) deja.tels.add(tel);
+    const pays = v('pays'), creation = dateImport(v('creation')), derniere = dateImport(v('derniere'));
+    const adresse = [v('adresse'), v('complement'), [v('cp'), v('ville')].filter(Boolean).join(' '), /^(france|fr|fra)?$/i.test(norm(pays)) ? '' : pays].filter(Boolean).join(', ');
+    const notes = corr.notes >= 0 ? txt(l[corr.notes]) : '';
+    const infos = [societe && !estSociete ? 'Société : ' + societe : '', tels.length > 1 ? 'Autres numéros : ' + tels.slice(1).join(', ') : '', v('motsCles') ? 'Mots clés : ' + v('motsCles') : '',
+      derniere ? 'Dernière facture : ' + dateChiffres(derniere) : '', notes].filter(Boolean).join('\n');
+    const statut = opt.statut === 'auto' ? (derniere && derniere >= limite ? 'actif' : 'termine') : opt.statut;
+    res.nouveaux.push({prenom, nom, telephone:tels[0] || '', email, adresse, naissance:dateImport(v('naissance')), debut:creation, statut, infos, derniere});
+  }
+  return res;
+}
+async function importerCsv(){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.csv,text/csv,text/plain,text/comma-separated-values';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if(!f) return;
+    let lignes = [];
+    try { lignes = lireCsv(await lireTexteFichier(f)); } catch(e){ lignes = []; }
+    if(lignes.length < 2) return toast('Fichier vide ou illisible : choisissez un fichier CSV avec une ligne de titres.');
+    feuilleImport(f.name, lignes);
+  };
+  inp.click();
+}
+function feuilleImport(nomFichier, lignes){
+  const entetes = lignes[0], donnees = lignes.slice(1), corr = {};
+  CHAMPS_IMPORT.forEach(([k, , syn]) => { corr[k] = entetes.findIndex(h => syn.includes(normEntete(h))); });
+  const facturenet = ['nom de famille', 'numero(s) de telephone', 'date de derniere facture'].every(h => entetes.some(e => normEntete(e) === h));
+  const opt = {statut:corr.derniere >= 0 ? 'auto' : 'actif', societes:false};
+  let res = analyserImport(donnees, corr, opt);
+  const optStatut = [...(corr.derniere >= 0 ? [['auto', 'Selon la dernière facture']] : []), ['actif', 'Tous « En suivi »'], ['termine', 'Tous « Suivi terminé »'], ['attente', 'Tous « En attente »']];
+  const apercu = () => { const n = res.nouveaux, st = k => STATUTS_PATIENT.find(s => s[0] === k), disc = DB.reglages.discret;
+    const nom = x => disc ? [x.prenom, x.nom].filter(Boolean).map(y => y.charAt(0).toUpperCase() + '.').join(' ') : [x.prenom, x.nom].filter(Boolean).join(' ');
+    return `<p style="margin:0 0 8px"><strong>${pluriel(n.length, 'patient')} à ajouter</strong>${n.length ? ` (${STATUTS_PATIENT.map(([k, t]) => { const c = n.filter(x => x.statut === k).length; return c ? c + ' ' + t.toLowerCase() : ''; }).filter(Boolean).join(', ')})` : ''}</p>
+      <p class="aide" style="margin:0 0 10px">${[res.doublons ? pluriel(res.doublons, 'doublon') + ' écarté' + (res.doublons > 1 ? 's' : '') + ' (déjà dans Cabinet ou en double dans le fichier)' : '', res.societes ? pluriel(res.societes, 'société') + ' sans prénom ni nom écartée' + (res.societes > 1 ? 's' : '') : '', res.vides ? pluriel(res.vides, 'ligne') + ' sans nom ignorée' + (res.vides > 1 ? 's' : '') : ''].filter(Boolean).join(' · ') || 'Aucun doublon.'}</p>
+      ${n.length ? `<ul class="liste">${n.slice(0, 6).map(x => `<li><span class="corps"><span class="t" style="display:block">${esc(nom(x))}</span><span class="s" style="display:block">${esc([disc ? '' : x.telephone, disc ? '' : x.email, x.derniere ? 'facture du ' + dateCourte(x.derniere) : ''].filter(Boolean).join(' · ') || '—')}</span></span>${puce(st(x.statut)[1], st(x.statut)[2])}</li>`).join('')}</ul>${n.length > 6 ? `<p class="aide" style="margin:6px 0 0">… et ${n.length - 6} autres.</p>` : ''}` : ''}`; };
+  const corps = `<p class="aide">${esc(nomFichier)} · ${pluriel(donnees.length, 'ligne')}${facturenet ? ' · export facture.net reconnu' : ''}. Le fichier est lu dans ce téléphone : rien n’est envoyé.</p>
+    <label class="champ"><span>Statut des patients importés</span><select id="imp-statut">${optStatut.map(([v, t]) => `<option value="${v}"${opt.statut === v ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    ${corr.derniere >= 0 ? `<p class="aide" style="margin-top:-6px">Selon la dernière facture : moins de 3 mois → En suivi ; plus ancienne ou aucune → Suivi terminé.</p>` : ''}
+    ${corr.societe >= 0 ? `<label class="case-ligne"><input type="checkbox" id="imp-societes"><span>Importer aussi les sociétés (lignes sans prénom ni nom)</span></label>` : ''}
+    <details class="carte" style="padding:10px 14px"><summary style="cursor:pointer;font-weight:600">Correspondance des colonnes</summary><div style="margin-top:12px">
+      ${CHAMPS_IMPORT.map(([k, t]) => `<label class="champ"><span>${esc(t)}</span><select data-imp="${k}"><option value="-1">— ignorer —</option>${entetes.map((h, i) => `<option value="${i}"${corr[k] === i ? ' selected' : ''}>${esc(h)}</option>`).join('')}</select></label>`).join('')}</div></details>
+    <div class="carte" id="imp-apercu">${apercu()}</div>`;
+  const bouton = () => res.nouveaux.length ? 'Importer ' + pluriel(res.nouveaux.length, 'patient') : 'Rien à importer';
+  ouvrir('Importer des patients', corps, {pied:btn('imp-ok', esc(bouton()), 'btn p'), apres:v => {
+    const maj = () => { res = analyserImport(donnees, corr, opt); $('#imp-apercu', v).innerHTML = apercu(); const b = $('[data-action="imp-ok"]', v); b.textContent = bouton(); b.disabled = !res.nouveaux.length; };
+    $('[data-action="imp-ok"]', v).disabled = !res.nouveaux.length;
+    v.addEventListener('change', e => { const el = e.target;
+      if(el.id === 'imp-statut') opt.statut = el.value; else if(el.id === 'imp-societes') opt.societes = el.checked; else if(el.dataset.imp) corr[el.dataset.imp] = Number(el.value);
+      maj(); });
+    $('[data-action="imp-ok"]', v).onclick = () => {
+      const lot = uid(), avant = JSON.stringify(DB), n = res.nouveaux.length; let c = DB.patients.length;
+      res.nouveaux.forEach(x => { const {derniere, ...p} = x; DB.patients.push({id:uid(), ...p, couleur:(c++) % 6, import:lot, cree:maintenant(), modif:maintenant()}); });
+      DB = normaliser(DB); sauver(); fermer(true); ongletPatients = 'actif'; recherchePatients = '';
+      if(lireRoute().nom === 'patients') rendre(); else location.hash = '#/patients';
+      toast(pluriel(n, 'patient') + ' importé' + (n > 1 ? 's' : ''), {annuler:() => { DB = normaliser(JSON.parse(avant)); sauver(); rendre(); toast('Import annulé'); }});
+    };
+  }});
 }
 
 /* --- Exemples : patients et séances inventés, pour découvrir l'appli ; retirés d'un geste --- */
@@ -1570,6 +1689,12 @@ const ACTIONS = {
   'secours-changer':() => formNouvelleSecours(),
   sauvegarder:() => sauvegarder(),
   restaurer:() => restaurer(),
+  'import-csv':() => importerCsv(),
+  'import-retirer':async () => {
+    const l = DB.patients.filter(p => p.import), libres = l.filter(p => !DB.rdv.some(r => r.patient === p.id) && !DB.notes.some(n => n.patient === p.id));
+    if(!(await confirmer({titre:'Retirer les patients importés ?', texte:`${pluriel(libres.length, 'patient')} importé${libres.length > 1 ? 's' : ''} sans rendez-vous ni note ${libres.length > 1 ? 'seront retirés' : 'sera retiré'}.${l.length > libres.length ? ' ' + pluriel(l.length - libres.length, 'patient') + ' avec des rendez-vous ou des notes ' + (l.length - libres.length > 1 ? 'restent' : 'reste') + '.' : ''}`, ok:'Retirer'}))) return;
+    const ids = new Set(libres.map(p => p.id));
+    supprimerAvecRetour(pluriel(libres.length, 'patient') + ' retiré' + (libres.length > 1 ? 's' : ''), () => { DB.patients = DB.patients.filter(p => !ids.has(p.id)); }); },
   exemples:() => { remplirExemples(); sauver(); rendre(); toast('Exemples ajoutés : à retirer dans Réglages → Données'); },
   'exemples-retirer':async () => { if(!(await confirmer({titre:'Retirer les exemples ?', texte:'Les patients d’exemple, leurs rendez-vous, notes et paiements, ainsi que les charges d’exemple, seront retirés. Vos propres données restent.', ok:'Retirer'}))) return;
     retirerExemples(); sauver(); rendre(); toast('Exemples retirés'); },
