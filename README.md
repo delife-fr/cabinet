@@ -63,3 +63,8 @@ n'autorise aucune connexion vers l'extérieur. `sw.js` permet l'utilisation hors
    la page reste blanche.
 3. Vérifier que l'appli démarre, se verrouille et se rouvre, depuis un serveur local
    (`python3 -m http.server`, puis `http://localhost:8000`).
+4. Après la fusion dans `main`, GitHub Pages met le site en ligne tout seul. Vérifier dans l'onglet **Actions**
+   qu'un « pages build and deployment » a démarré pour le commit fusionné, puis, sur le téléphone, que le bas de
+   Réglages affiche le nouveau numéro. S'il ne démarre pas (incident GitHub), le relancer :
+   `gh api -X POST repos/delife-fr/cabinet/pages/builds`, ou Settings → Pages → Branch sur « None », enregistrer,
+   puis remettre `main`. Ne pas relancer un ancien déploiement depuis Actions : il remettrait l'ancienne version.
