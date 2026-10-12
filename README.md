@@ -28,7 +28,38 @@ Réglages → **Sauvegarder maintenant** produit un fichier chiffré, à ranger 
 (ordinateur, clé USB…). Un rappel s'affiche régulièrement. Pour le relire : Réglages → **Restaurer**,
 avec le code (ou la clé de secours) en vigueur au moment de la sauvegarde.
 
+## Importer des patients (CSV)
+
+Réglages → Données → **Importer des patients (CSV)**. Le fichier est lu dans le téléphone, rien n'est envoyé.
+
+- L'export « Clients » de facture.net est reconnu tel quel ; pour un autre fichier, les colonnes sont
+  reconnues par leur titre (prénom, nom, e-mail, téléphone, adresse, date de naissance…) et corrigeables à l'écran.
+- Séparateur point-virgule, virgule ou tabulation ; fichier en UTF-8 ou Windows-1252.
+- Statut au choix, ou d'après la date de dernière facture : moins de 3 mois → En suivi, sinon Suivi terminé.
+- Les doublons (même nom, e-mail ou téléphone) sont écartés ; les lignes de sociétés sont ignorées sauf demande.
+- Dates acceptées : `2026-10-09`, `09/10/2026`, `9.10.26`. Une année sur 2 chiffres au-delà de l'année en cours
+  est lue en 19xx (naissance « 78 » → 1978).
+- L'import s'annule juste après (bouton **Annuler**) ; plus tard, **Retirer les patients importés** enlève
+  ceux qui n'ont ni rendez-vous ni note.
+
+## Exports pour le comptable
+
+Finances → livre des recettes et registre des dépenses de l'année, en CSV (point-virgule, UTF-8) qui s'ouvre
+directement dans Excel. Un texte qui commence par `=`, `+`, `-` ou `@` est précédé d'une apostrophe pour ne pas
+être pris pour une formule.
+
 ## Technique
 
 Un seul fichier (`index.html`), sans bibliothèque externe. La politique de sécurité de la page (CSP)
 n'autorise aucune connexion vers l'extérieur. `sw.js` permet l'utilisation hors ligne.
+
+## Publier une nouvelle version
+
+1. Changer le numéro de version aux quatre endroits : commentaire d'en-tête et `VERSION_APPLI` dans `index.html`,
+   commentaire et nom du cache (`CACHE = 'cabinet-v…'`) dans `sw.js`. Le nouveau nom de cache fait recharger
+   les icônes et le manifeste aux téléphones déjà installés.
+2. **Recalculer les empreintes de la CSP** après toute modification d'un des deux `<script>` en ligne : la balise
+   `Content-Security-Policy` liste l'empreinte SHA-256 (en base64) du contenu exact de chacun. Sans cela,
+   la page reste blanche.
+3. Vérifier que l'appli démarre, se verrouille et se rouvre, depuis un serveur local
+   (`python3 -m http.server`, puis `http://localhost:8000`).
