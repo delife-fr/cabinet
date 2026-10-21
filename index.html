@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-2Gz/fYDnH0+8AVVPnUa0PxSyFEOVhbgrL8b2DCkV0qs='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-JqDd4HCbHTDA5ZN403drDJ0z91sTue6d1M+kskrVv9M='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
 <meta name="referrer" content="no-referrer">
 <title>Cabinet</title>
 <!--
@@ -39,7 +39,8 @@
   v1.4 : Finances → catégories de charges modifiables (ajouter, renommer, couleur, supprimer en reportant ses charges ailleurs),
   aussi depuis le formulaire d'une charge (« + Nouvelle catégorie… ») ; mode de paiement des charges comme pour une séance,
   plus le prélèvement, affiché dans les listes ; carte « Dépenses par catégorie » : anneau et légende, une catégorie touchée
-  n'affiche plus que ses charges.
+  n'affiche plus que ses charges. Correction : rendez-vous modifié puis « + Nouveau patient… » : c'est bien ce rendez-vous qui
+  change (il était dupliqué) ; la saisie (répétition comprise) est gardée, et rouverte si la fiche du patient est fermée.
 
   Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
   avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
@@ -1141,7 +1142,8 @@ function pagePatient(id){
 const notesMontrees = {};
 const nbNotes = pid => notesMontrees[pid] || 5;
 
-/* --- Formulaires : patient --- */
+/* --- Formulaires : patient ---
+   puis(id) : après « Ajouter » (id du nouveau patient) ou à la fermeture sans enregistrer (id vide) */
 function formPatient(p0 = {}, {puis = null} = {}){
   const ex = p0.id ? unPatient(p0.id) : null, p = ex || p0;
   formulaire({titre:ex ? 'Modifier le patient' : 'Nouveau patient', ok:ex ? 'Enregistrer' : 'Ajouter', champs:[
@@ -1154,7 +1156,7 @@ function formPatient(p0 = {}, {puis = null} = {}){
     {n:'debut', l:'Début du suivi', t:'date', v:p.debut, aide:'vide = première séance', demi:true}, {n:'adresse', l:'Adresse', v:p.adresse, demi:true},
     {n:'tarif', l:'Tarif', t:'montant', v:p.tarif ?? '', aide:'vide = ' + eur(DB.reglages.tarif), demi:true}, {n:'duree', l:'Durée (min)', t:'nombre', v:p.duree || '', aide:'vide = ' + DB.reglages.duree, demi:true},
     {n:'infos', l:'Infos pratiques', t:'zone', lignes:2, v:p.infos, aide:'mode de paiement, disponibilités…'}
-  ], onOk:v => {
+  ], fermeture:puis ? () => puis('') : null, onOk:v => {
     if(!txt(v.prenom) && !txt(v.nom)) return 'Indiquez au moins un prénom ou un nom.';
     const champs = {prenom:txt(v.prenom), nom:txt(v.nom), telephone:txt(v.telephone), naissance:dateValide(v.naissance), email:txt(v.email), statut:v.statut, demande:dateValide(v.demande),
       motif:txt(v.motif), adressePar:txt(v.adressePar), medecin:txt(v.medecin), debut:dateValide(v.debut), adresse:txt(v.adresse),
@@ -1171,17 +1173,18 @@ function formPatient(p0 = {}, {puis = null} = {}){
 
 /* --- Rendez-vous : séance ou créneau bloqué ; répétition chaque semaine ou toutes les 2 semaines --- */
 const optionsPatients = sel => [{v:'', t:'— Choisir —'}, ...trierPatients(DB.patients.filter(p => p.statut !== 'termine' || p.id === sel)).map(p => ({v:p.id, t:nomAff(p)})), {v:'__nouveau', t:'+ Nouveau patient…'}];
-function formRdv(r0 = {}, {bloque = false} = {}){
-  const ex = r0.id ? unRdv(r0.id) : null, r = ex || r0, estBloque = ex ? !ex.patient : bloque, p = unPatient(r.patient);
+/* brouillon : valeurs déjà saisies, affichées à la place de celles du rendez-vous (retour de « + Nouveau patient… ») */
+function formRdv(r0 = {}, {bloque = false, brouillon = null} = {}){
+  const ex = r0.id ? unRdv(r0.id) : null, r = {...(ex || r0), ...(brouillon || {})}, estBloque = ex ? !ex.patient : bloque, p = unPatient(r.patient);
   let confirmeChevauche = '';
   const champs = estBloque ? [{n:'titre', l:'Intitulé', v:r.titre, aide:'supervision, pause, formation…', attrs:'autofocus'}] : [{n:'patient', l:'Patient', t:'select', o:optionsPatients(r.patient), v:r.patient || ''}];
   champs.push({n:'date', l:'Date', t:'date', v:r.date || aujourdhui(), demi:true}, {n:'heure', l:'Heure', t:'heure', v:r.heure || '09:00', demi:true},
     {n:'duree', l:'Durée (min)', t:'nombre', v:r.duree || (estBloque ? 60 : dureeDe(p)), demi:true});
   if(!estBloque) champs.push({n:'lieu', l:'Lieu', t:'select', o:LIEUX.map(x => ({v:x, t:x})), v:r.lieu || 'Cabinet', demi:true}, {n:'montant', l:'Montant', t:'montant', v:r.montant ?? tarifDe(p)});
   else champs.push({n:'lieu', l:'Lieu', v:r.lieu && r.lieu !== 'Cabinet' ? r.lieu : '', demi:true, aide:'facultatif'});
-  if(!ex) champs.push({n:'repete', l:'Répétition', t:'select', o:[{v:'', t:'Une seule fois'}, {v:'7', t:'Chaque semaine'}, {v:'14', t:'Toutes les 2 semaines'}, {v:'mois', t:libelleMensuel(r.date || aujourdhui())}], v:'', demi:true},
-    {n:'nombre', l:'Nombre de séances', t:'nombre', v:'10', demi:true, aide:'si répété'});
-  else if(ex.serie) champs.push({n:'suite', l:'Appliquer aussi aux rendez-vous suivants de la série', t:'case', aide:'heure, durée, lieu' + (estBloque ? '' : ', montant') + ' (pas la date)'});
+  if(!ex) champs.push({n:'repete', l:'Répétition', t:'select', o:[{v:'', t:'Une seule fois'}, {v:'7', t:'Chaque semaine'}, {v:'14', t:'Toutes les 2 semaines'}, {v:'mois', t:libelleMensuel(r.date || aujourdhui())}], v:r.repete || '', demi:true},
+    {n:'nombre', l:'Nombre de séances', t:'nombre', v:r.nombre || '10', demi:true, aide:'si répété'});
+  else if(ex.serie) champs.push({n:'suite', l:'Appliquer aussi aux rendez-vous suivants de la série', t:'case', v:r.suite, aide:'heure, durée, lieu' + (estBloque ? '' : ', montant') + ' (pas la date)'});
   champs.push({n:'note', l:'Remarque', v:r.note, aide:'visible dans le planning, ex. « 1re séance »'});
   formulaire({titre:ex ? (estBloque ? 'Modifier le créneau' : 'Modifier le rendez-vous') : (estBloque ? 'Bloquer un créneau' : 'Nouveau rendez-vous'), ok:ex ? 'Enregistrer' : 'Ajouter', champs,
     suppr:ex ? () => supprimerRdv(ex.id) : null,
@@ -1190,9 +1193,15 @@ function formRdv(r0 = {}, {bloque = false} = {}){
       /* « Tous les mois (2e mardi) » suit la date choisie */
       const mensuel = $('[name="repete"] option[value="mois"]', f), date = $('[name="date"]', f);
       if(mensuel && date) date.addEventListener('change', () => { if(dateValide(date.value)) mensuel.textContent = libelleMensuel(date.value); });
+      /* « + Nouveau patient… » : le formulaire se rouvre tel qu'il était (le même rendez-vous s'il était modifié),
+         sur le nouveau patient, ou sur le précédent si sa fiche est fermée sans l'ajouter */
       const sel = $('[name="patient"]', f); if(!sel) return;
+      let avant = sel.value;
       sel.addEventListener('change', () => {
-        if(sel.value === '__nouveau'){ const garde = lireForm(f); fermer(true); return formPatient({}, {puis:id => formRdv({...garde, patient:id, montant:tarifDe(unPatient(id)), duree:dureeDe(unPatient(id))})}); }
+        if(sel.value === '__nouveau'){ const garde = lireForm(f); fermer(true);
+          return formPatient({}, {puis:id => { const q = unPatient(id);
+            formRdv(r0, {bloque, brouillon:q ? {...garde, patient:id, montant:tarifDe(q), duree:dureeDe(q)} : {...garde, patient:avant}}); }}); }
+        avant = sel.value;
         const q = unPatient(sel.value); if(q){ $('[name="montant"]', f).value = String(tarifDe(q)).replace('.', ','); $('[name="duree"]', f).value = dureeDe(q); }
       });
     },
@@ -1512,8 +1521,14 @@ function feuilleCategories(){
   ouvrir('Catégories de charges', `<p class="aide">Renommer une catégorie ou changer sa couleur met à jour toutes ses charges, y compris dans les exports.</p>
     <div class="carte" style="padding:4px 14px"><ul class="liste">${l}</ul></div>`, {pied:btn('categorie-nouvelle', ico('plus', 16) + 'Nouvelle catégorie', 'btn p')});
 }
-/* Couleur proposée pour une nouvelle catégorie : la moins utilisée, dans l'ordre des teintes */
-const couleurLibre = () => { const n = k => DB.categories.filter(c => c.couleur === k).length; return TEINTES.map(t => t[0]).reduce((a, k) => n(k) < n(a) ? k : a); };
+/* Couleur proposée pour une nouvelle catégorie : la moins présente dans les charges des 12 derniers mois (pas celle du loyer,
+   qui revient chaque mois), à égalité la moins utilisée par les catégories, dans l'ordre des teintes */
+function couleurLibre(){
+  const depuis = decale(aujourdhui(), -365), poids = new Map(TEINTES.map(([k]) => [k, [0, 0]]));
+  DB.categories.forEach(c => { const x = poids.get(c.couleur); if(x) x[1]++; });
+  DB.charges.forEach(c => { const x = c.date >= depuis && poids.get(couleurCategorie(c.categorie)); if(x) x[0] += c.montant; });
+  return [...poids].reduce((a, b) => b[1][0] < a[1][0] || (b[1][0] === a[1][0] && b[1][1] < a[1][1]) ? b : a)[0];
+}
 const choixTeinte = v => `<div class="champ"><span>Couleur <em>— dans le graphique « Dépenses par catégorie »</em></span><div class="teintes" role="radiogroup" aria-label="Couleur">${TEINTES.map(([k, t]) => {
   const prises = DB.categories.filter(c => c.couleur === k).map(c => c.nom), titre = t + (prises.length ? ' · déjà prise par : ' + prises.join(', ') : '');
   return `<label class="teinte" title="${esc(titre)}"><input type="radio" name="couleur" value="${k}"${k === v ? ' checked' : ''} aria-label="${esc(titre)}"><span style="--c:var(--g-${k})">${ico('check', 18, 2.6)}</span></label>`; }).join('')}</div></div>`;
