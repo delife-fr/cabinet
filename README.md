@@ -46,6 +46,17 @@ Réglages → Données → **Importer des patients (CSV)**. Le fichier est lu da
 - L'import s'annule juste après (bouton **Annuler**) ; plus tard, **Retirer les patients importés** enlève
   ceux qui n'ont ni rendez-vous ni note.
 
+## Charges et catégories
+
+- Finances → **Catégories** : ajouter, renommer, changer la couleur ou supprimer une catégorie de charges. Les charges
+  suivent un renommage ; à la suppression, celles de la catégorie sont reportées dans la catégorie choisie
+  (bouton **Annuler** juste après). Une catégorie se crée aussi depuis le formulaire d'une charge (« + Nouvelle catégorie… »).
+- Chaque charge a son **mode de paiement**, comme une séance (carte, espèces, chèque, virement), plus le prélèvement.
+  Il apparaît dans les listes et dans le registre des dépenses.
+- Carte **Dépenses par catégorie** : un anneau et sa légende pour le mois ou l'année. Au-delà de 6 catégories, les plus
+  petites sont regroupées (« N autres catégories », détaillées dans la légende). Toucher une catégorie n'affiche plus
+  que ses charges.
+
 ## Exports pour le comptable
 
 Finances → livre des recettes et registre des dépenses de l'année, en CSV (point-virgule, UTF-8) qui s'ouvre
