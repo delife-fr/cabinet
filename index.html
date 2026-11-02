@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-8OTdWHpyLwZ6C1EwU536GHQjE8vMK964O/FG+uWxeMA='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-yJRd9YhVqx1M5k7ELzt3ljwnHAtTiDyQs4OiooQukO8='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
 <meta name="referrer" content="no-referrer">
 <title>Cabinet</title>
 <!--
-  CABINET — v1.5
+  CABINET — v1.5.1
   Appli de gestion pour psychologue en libéral : patients, planning des rendez-vous, notes de séance,
   paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, import des relevés bancaires.
 
@@ -46,6 +46,9 @@
   Chaque opération est vérifiée, cochée ou non, et classée à la main : catégories, sous-catégories et pointage de la banque
   ne sont pas repris. Dépenses → charges, crédits → autres recettes ; opérations déjà importées reconnues (relevés qui se
   chevauchent) ; même montant déjà saisi à la main signalé ; import annulable, et repris s'il est interrompu.
+
+  v1.5.1 : relevé Société Générale reconnu aussi avec les titres de colonnes abrégés (« Date transac », « Libellé opéra »,
+  « Libellé comp ») ; « Libellé Comp » (le compte) n'est plus pris pour le libellé complet.
 
   Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
   avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
@@ -376,7 +379,7 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
 /* ==========================================================================
    A. DONNÉES — un seul objet DB, chiffré à chaque enregistrement
    ========================================================================== */
-const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.5';
+const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.5.1';
 const STATUTS_PATIENT = [['actif', 'En suivi', 'vert'], ['attente', 'En attente', 'jaune'], ['termine', 'Suivi terminé', 'gris']];
 const STATUTS_RDV = {prevu:['Prévu', 'bleu'], honore:['Honoré', 'vert'], absent:['Absent', 'rose'], annule:['Annulé', 'gris']};
 const MODES = [['cb', 'Carte'], ['especes', 'Espèces'], ['cheque', 'Chèque'], ['virement', 'Virement'], ['autre', 'Autre']];
@@ -1622,9 +1625,9 @@ async function partagerFichier(nom, contenu, type){
    Chaque opération importée garde son empreinte (date, montant, libellé, rang parmi les identiques du fichier) : un relevé qui
    chevauche le précédent ne la repropose pas. L'import en cours survit à la fermeture de la fiche (« Reprendre »), pas au verrouillage. */
 const COLONNES_RELEVE = [
-  ['date', 'Date de l’opération', [/^date (de (l )?)?(transaction|operation)/, /^date (de )?compta/, /^date$/, /^date/]],
-  ['libelle', 'Libellé', [/^libelle (de (l )?)?operation/, /^libelle$/, /^intitule/]],
-  ['detail', 'Libellé complet', [/^libelle compl/, /^detail/, /^libelle long/]],
+  ['date', 'Date de l’opération', [/^date (de (l )?)?(trans|op)/, /^date (de )?compta/, /^date$/, /^date/]],
+  ['libelle', 'Libellé', [/^libelle (de (l )?)?op/, /^libelle$/, /^intitule/]],
+  ['detail', 'Libellé complet', [/^libelle comp(?!te\b)/, /^detail/, /^libelle long/]],
   ['montant', 'Montant', [/^montant/]],
   ['debit', 'Débit', [/^debit/]],
   ['credit', 'Crédit', [/^credit/]]
@@ -1632,11 +1635,15 @@ const COLONNES_RELEVE = [
 let releve = null;   /* import en cours : {fichier, sg, entetes, donnees, corr, choix:Map(empreinte → {garder, categorie}), colonnes:correspondance retouchée} */
 const enteteReleve = h => normEntete(h).replace(/['’-]/g, ' ').replace(/\s+/g, ' ').trim();
 const celReleve = v => txt(v).replace(/^="(.*)"$/, '$1').trim();
-/* Colonnes reconnues par leur titre : « Date transaction » plutôt que « Date comptabilisation », « Libellé opération »… */
+/* Colonnes reconnues par le début de leur titre, entier ou abrégé : Société Générale → Date transac(tion), Date compta(bilisation),
+   Num Compte, Libellé Comp(te), Libellé opéra(tion), Libellé comp(let), Catégorie, Sous-Catégo(rie), Montant, Pointée.
+   « Libellé Comp » (le compte) et « Libellé comp » (complet) ne diffèrent que d'une majuscule : le complet est cherché d'abord
+   à droite du libellé de l'opération. */
 function colonnesReleve(entetes){
-  const h = entetes.map(enteteReleve), prises = new Set(), corr = {};
+  const h = entetes.map(enteteReleve), prises = new Set(), corr = {}, n = h.map((x, j) => j);
   COLONNES_RELEVE.forEach(([k, , tests]) => { corr[k] = -1;
-    for(const t of tests){ const i = h.findIndex((x, j) => !prises.has(j) && t.test(x)); if(i >= 0){ corr[k] = i; prises.add(i); break; } } });
+    const ordre = k === 'detail' && corr.libelle >= 0 ? [...n.slice(corr.libelle + 1), ...n.slice(0, corr.libelle)] : n;
+    for(const t of tests){ const i = ordre.find(j => !prises.has(j) && t.test(h[j])); if(i !== undefined){ corr[k] = i; prises.add(i); break; } } });
   return corr;
 }
 const colonnesCompletes = c => c.date >= 0 && (c.montant >= 0 || c.debit >= 0 || c.credit >= 0);

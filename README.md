@@ -71,7 +71,8 @@ Finances → en bas, **Importer un relevé (CSV)** : le fichier des opérations 
 - Une dépense du montant d'une charge fixe de la même catégorie, pas encore saisie ce mois-là, compte pour elle.
 - Les opérations déjà importées sont reconnues (même date, même montant, même libellé) : deux relevés qui se
   chevauchent ne créent pas de doublon. Un montant identique saisi à la main à 4 jours près est signalé (« Déjà saisie ? »).
-- Colonnes reconnues par leur titre (date de l'opération, libellé, libellé complet, montant, ou débit et crédit),
+- Colonnes reconnues par le début de leur titre, entier ou abrégé comme dans le fichier Société Générale (« Date transac »,
+  « Libellé opéra », « Libellé comp », « Montant » ; ou débit et crédit),
   corrigeables dans « Correspondance des colonnes » ; ancien format Société Générale (ligne de compte en tête) reconnu ;
   séparateur point-virgule, virgule ou tabulation ; UTF-8 ou Windows-1252. Un fichier Excel est refusé : choisir le CSV.
 - L'import s'annule juste après (bouton **Annuler**). Fiche fermée avant la fin : **Reprendre** retrouve les choix,
