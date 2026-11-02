@@ -2,7 +2,7 @@
 
 Application de gestion pour psychologue en libéral, pensée pour l'iPhone :
 patients, planning des rendez-vous, notes de séance, paiements et impayés, charges du cabinet
-(loyer, URSSAF, CIPAV…), tableau de bord et exports pour le comptable.
+(loyer, URSSAF, CIPAV…), tableau de bord et import des relevés bancaires.
 
 ## Confidentialité
 
@@ -52,16 +52,30 @@ Réglages → Données → **Importer des patients (CSV)**. Le fichier est lu da
   suivent un renommage ; à la suppression, celles de la catégorie sont reportées dans la catégorie choisie
   (bouton **Annuler** juste après). Une catégorie se crée aussi depuis le formulaire d'une charge (« + Nouvelle catégorie… »).
 - Chaque charge a son **mode de paiement**, comme une séance (carte, espèces, chèque, virement), plus le prélèvement.
-  Il apparaît dans les listes et dans le registre des dépenses.
+  Il apparaît dans les listes.
 - Carte **Dépenses par catégorie** : un anneau et sa légende pour le mois ou l'année. Au-delà de 6 catégories, les plus
   petites sont regroupées (« N autres catégories », détaillées dans la légende). Toucher une catégorie n'affiche plus
   que ses charges.
 
-## Exports pour le comptable
+## Importer un relevé bancaire (CSV)
 
-Finances → livre des recettes et registre des dépenses de l'année, en CSV (point-virgule, UTF-8) qui s'ouvre
-directement dans Excel. Un texte qui commence par `=`, `+`, `-` ou `@` est précédé d'une apostrophe pour ne pas
-être pris pour une formule.
+Finances → en bas, **Importer un relevé (CSV)** : le fichier des opérations téléchargé depuis l'espace Société Générale
+(celui d'une autre banque convient en général). Il est lu dans le téléphone, rien n'est envoyé.
+
+- Chaque opération s'affiche avec sa date, son libellé, son montant et son mode de paiement (carte, prélèvement,
+  virement, chèque… déduit du libellé). On **coche** celles à importer et on **choisit la catégorie** de chaque dépense
+  (ou « + Nouvelle catégorie… ») ; choisir une catégorie coche la ligne. Rien n'est coché d'avance.
+- Les colonnes **Catégorie**, **Sous-catégorie** et **Pointée** de la banque ne sont pas reprises.
+- Les dépenses deviennent des **charges** (le libellé complet de la banque va dans la note), les crédits des
+  **autres recettes**. Un règlement de séance déjà encaissé dans Cabinet n'est pas à cocher : il compterait deux fois.
+- Une dépense du montant d'une charge fixe de la même catégorie, pas encore saisie ce mois-là, compte pour elle.
+- Les opérations déjà importées sont reconnues (même date, même montant, même libellé) : deux relevés qui se
+  chevauchent ne créent pas de doublon. Un montant identique saisi à la main à 4 jours près est signalé (« Déjà saisie ? »).
+- Colonnes reconnues par leur titre (date de l'opération, libellé, libellé complet, montant, ou débit et crédit),
+  corrigeables dans « Correspondance des colonnes » ; ancien format Société Générale (ligne de compte en tête) reconnu ;
+  séparateur point-virgule, virgule ou tabulation ; UTF-8 ou Windows-1252. Un fichier Excel est refusé : choisir le CSV.
+- L'import s'annule juste après (bouton **Annuler**). Fiche fermée avant la fin : **Reprendre** retrouve les choix,
+  jusqu'au verrouillage.
 
 ## Technique
 
