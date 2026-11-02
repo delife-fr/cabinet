@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-JqDd4HCbHTDA5ZN403drDJ0z91sTue6d1M+kskrVv9M='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-OOxAif4/P3rFCdhBqJIQKpySyhXwxZFy1m0uWwv75J4=' 'sha256-8OTdWHpyLwZ6C1EwU536GHQjE8vMK964O/FG+uWxeMA='; style-src 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none';">
 <meta name="referrer" content="no-referrer">
 <title>Cabinet</title>
 <!--
-  CABINET — v1.4
+  CABINET — v1.5
   Appli de gestion pour psychologue en libéral : patients, planning des rendez-vous, notes de séance,
-  paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, exports pour le comptable.
+  paiements et impayés, charges du cabinet (loyer, URSSAF, CIPAV…), tableau de bord, import des relevés bancaires.
 
   Confidentialité (secret professionnel, données de santé) :
   · Les données ne quittent jamais l'appareil : aucun serveur, aucun compte, aucune synchronisation.
@@ -41,6 +41,11 @@
   plus le prélèvement, affiché dans les listes ; carte « Dépenses par catégorie » : anneau et légende, une catégorie touchée
   n'affiche plus que ses charges. Correction : rendez-vous modifié puis « + Nouveau patient… » : c'est bien ce rendez-vous qui
   change (il était dupliqué) ; la saisie (répétition comprise) est gardée, et rouverte si la fiche du patient est fermée.
+
+  v1.5 : Finances → import d'un relevé bancaire (CSV de la Société Générale), à la place des exports pour le comptable.
+  Chaque opération est vérifiée, cochée ou non, et classée à la main : catégories, sous-catégories et pointage de la banque
+  ne sont pas repris. Dépenses → charges, crédits → autres recettes ; opérations déjà importées reconnues (relevés qui se
+  chevauchent) ; même montant déjà saisi à la main signalé ; import annulable, et repris s'il est interrompu.
 
   Un seul fichier, aucune bibliothèque externe. Après toute modification du script : recalculer les empreintes de la CSP
   avec l'outil des tests (rangés à part), sinon la page ne démarre pas.
@@ -335,6 +340,31 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
 .total-ligne{display:flex;justify-content:space-between;font-weight:700;padding-top:10px;margin-top:6px;border-top:1px solid var(--trait)}
 .case-liste li{cursor:pointer}
 .case-liste input{width:22px;height:22px;accent-color:var(--accent);margin:0}
+/* Import d'un relevé bancaire : une ligne par opération (case, libellé, montant, catégorie) ; bilan et bouton collés en bas */
+.ops{list-style:none;margin:0;padding:0}
+.ops > li{display:flex;align-items:flex-start;gap:2px;margin:0 -8px;padding:10px 8px;border-top:1px solid var(--trait-doux)}
+.ops > li:first-child{border-top:0}
+.ops > li.on{background:var(--accent-fond)}
+.ops .op-case{display:block;padding:1px 10px 10px 0;cursor:pointer}
+.ops .op-case input{display:block;width:22px;height:22px;margin:0;accent-color:var(--accent)}
+.ops .corps{flex:1;min-width:0}
+.ops .op-l1{display:flex;gap:10px;align-items:baseline}
+.ops .op-l1 .t{flex:1;min-width:0;font-weight:580;overflow-wrap:anywhere}
+.ops .op-mt{flex-shrink:0;font-weight:650;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ops .op-mt.credit{color:var(--vert)}
+.ops .s{font-size:12.5px;color:var(--texte-doux);margin-top:1px;overflow-wrap:anywhere}
+.ops .op-alerte{display:flex;gap:5px;align-items:flex-start;font-size:12.5px;color:var(--jaune);margin-top:3px}
+.ops .op-alerte svg{flex-shrink:0;margin-top:1px}
+.ops select{display:block;width:100%;min-height:40px;margin-top:7px;padding:8px 32px 8px 11px;border-radius:10px;border:1px solid var(--trait);background-color:var(--champ);font-size:16px;outline:none;-webkit-appearance:none;appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--texte-faible) 50%),linear-gradient(135deg,var(--texte-faible) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat}
+.ops select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-fond)}
+.ops select.manque{border-color:var(--rose);box-shadow:0 0 0 3px var(--f-rose)}
+.ops .puce{margin-top:7px}
+.feuille-pied.colle{position:sticky;bottom:calc(-18px - var(--bas));z-index:2;flex-direction:column;align-items:stretch;gap:8px;margin:8px -16px calc(-18px - var(--bas));padding:10px 16px calc(14px + var(--bas));background:var(--fond);border-top:1px solid var(--trait-doux)}
+@media (min-width:700px){.feuille-pied.colle{bottom:-18px;margin-bottom:-18px;padding-bottom:14px}}
+.feuille-pied.colle .btn{flex:none}
+.releve-bilan{margin:0;text-align:center;font-size:13.5px;color:var(--texte-doux)}
+.releve-bilan.erreur{color:var(--rose)}
 @media (max-width:380px){.actions-rapides{gap:6px}.actions-rapides a,.actions-rapides button{font-size:11px}.chiffre .val{font-size:19px}}
 @media (prefers-reduced-motion:reduce){*{transition:none !important}}
 </style>
@@ -346,7 +376,7 @@ main{max-width:860px;margin:0 auto;padding:16px 16px calc(96px + var(--bas))}
 /* ==========================================================================
    A. DONNÉES — un seul objet DB, chiffré à chaque enregistrement
    ========================================================================== */
-const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.4';
+const VERSION = 1, APPLI = 'Cabinet', VERSION_APPLI = '1.5';
 const STATUTS_PATIENT = [['actif', 'En suivi', 'vert'], ['attente', 'En attente', 'jaune'], ['termine', 'Suivi terminé', 'gris']];
 const STATUTS_RDV = {prevu:['Prévu', 'bleu'], honore:['Honoré', 'vert'], absent:['Absent', 'rose'], annule:['Annulé', 'gris']};
 const MODES = [['cb', 'Carte'], ['especes', 'Espèces'], ['cheque', 'Chèque'], ['virement', 'Virement'], ['autre', 'Autre']];
@@ -410,11 +440,11 @@ function normaliser(d){
   if(!categories.length) categories.push(...categoriesDefaut());
   const idsCat = categories.map(c => c.id), catDef = idsCat.includes('autre') ? 'autre' : idsCat[idsCat.length - 1], idsModes = MODES_CHARGES.map(m => m[0]);
   const charges = liste('charges').filter(c => dateValide(c.date)).map(c => ({id:id(c), date:c.date, libelle:txt(c.libelle), categorie:unDe(c.categorie, idsCat, catDef),
-    montant:nombre(c.montant, 0), mode:unDe(c.mode, idsModes, 'virement'), fixe:txt(c.fixe), note:txt(c.note), demo:!!c.demo || undefined, cree:cree(c), modif:txt(c.modif) || cree(c)}));
+    montant:nombre(c.montant, 0), mode:unDe(c.mode, idsModes, 'virement'), fixe:txt(c.fixe), note:txt(c.note), releve:txt(c.releve) || undefined, demo:!!c.demo || undefined, cree:cree(c), modif:txt(c.modif) || cree(c)}));
   const fixes = liste('fixes').map(f => ({id:id(f), libelle:txt(f.libelle), categorie:unDe(f.categorie, idsCat, catDef), montant:nombre(f.montant, 0),
     jour:Math.min(28, Math.max(1, Math.round(nombre(f.jour, 5)))), mode:unDe(f.mode, idsModes, 'virement'), demo:!!f.demo || undefined}));
   const recettes = liste('recettes').filter(x => dateValide(x.date)).map(x => ({id:id(x), date:x.date, libelle:txt(x.libelle), montant:nombre(x.montant, 0),
-    mode:unDe(x.mode, MODES.map(m => m[0]), 'virement'), demo:!!x.demo || undefined, cree:cree(x), modif:txt(x.modif) || cree(x)}));
+    mode:unDe(x.mode, MODES.map(m => m[0]), 'virement'), releve:txt(x.releve) || undefined, demo:!!x.demo || undefined, cree:cree(x), modif:txt(x.modif) || cree(x)}));
   return {version:VERSION, reglages:r, patients, rdv, notes, categories, charges, fixes, recettes};
 }
 
@@ -961,7 +991,7 @@ async function verrouiller(){
   if(enCoursSauver) await enCoursSauver;   /* une écriture déjà lancée : attendre son résultat */
   if(aSauver) await ecrireMaintenant();    /* échec : un second essai tant que la clé est là */
   ecriturePendante = aSauver; aSauver = false;
-  cleDonnees = null; DB = vierge(); etat = 'verrou';
+  cleDonnees = null; DB = vierge(); releve = null; etat = 'verrou';
   ecranVerrou();
 }
 /* Verrouillage automatique : après N minutes sans toucher l'écran, ou en revenant dans l'appli après N minutes
@@ -1428,12 +1458,11 @@ function pageFinances(){
   html += `<div class="section-titre">Activité</div><div class="grille">
     <div class="chiffre"><div class="lib">Absences</div><div class="val">${tauxAbs} %</div><div class="note">${pluriel(absents.length, 'absence')} non excusée${absents.length > 1 ? 's' : ''}</div></div>
     <div class="chiffre"><div class="lib">Annulations</div><div class="val">${seances.filter(x => x.statut === 'annule').length}</div><div class="note">séances annulées à temps</div></div></div>`;
-  html += `<div class="section-titre">Pour le comptable · ${an}</div><div class="carte"><p class="aide">Fichiers CSV (Excel, Numbers) de l’année ${an}. Le livre des recettes liste chaque encaissement par date.</p>
-    <div class="boutons">${btn('export-recettes', ico('telecharger', 16) + 'Livre des recettes', 'btn')}${btn('export-depenses', ico('telecharger', 16) + 'Registre des dépenses', 'btn')}</div>
-    <label class="case-ligne" style="margin:12px 0 0"><input type="checkbox" id="export-initiales"${exportInitiales ? ' checked' : ''}><span>Initiales des patients seulement dans le livre des recettes</span></label></div>`;
-  return {titre:'Finances', html, plus:'charge-nouvelle', plusLabel:'Nouvelle charge', apres:() => { $('#export-initiales').addEventListener('change', e => { exportInitiales = e.target.checked; }); }};
+  html += `<div class="section-titre">Relevé bancaire</div><div class="carte"><p class="aide">Le fichier CSV des opérations, téléchargé depuis votre espace Société Générale. Vous vérifiez chaque opération,
+    cochez celles à importer et choisissez leur catégorie : les dépenses deviennent des charges, les crédits des autres recettes. Le fichier est lu dans ce téléphone : rien n’est envoyé.</p>
+    <div class="boutons">${btn('releve-importer', ico('importer', 16) + 'Importer un relevé (CSV)', 'btn')}${releve ? btn('releve-reprendre', esc('Reprendre « ' + releve.fichier + ' »'), 'btn f') : ''}</div></div>`;
+  return {titre:'Finances', html, plus:'charge-nouvelle', plusLabel:'Nouvelle charge'};
 }
-let exportInitiales = false;
 function feuilleImpayes(pid){
   const p = unPatient(pid), l = seancesDe(pid).filter(r => r.date <= aujourdhui() && reste(r) > 0).reverse(), tot = somme(l.map(reste));
   const texte = modele(DB.reglages.modeleRelance, {prenom:p ? p.prenom || nomComplet(p) : '', seances:l.length > 1 ? 'les séances des ' + l.map(r => dateCourte(r.date)).join(', ') : 'la séance du ' + dateCourte(l[0].date),
@@ -1518,7 +1547,7 @@ function feuilleCategories(){
   const l = DB.categories.map(c => { const u = usageCategorie(c.id);
     return `<li><button type="button" class="ligne-btn" data-action="categorie-ouvrir" data-id="${esc(c.id)}">${pointCat(c.couleur, 'pt grand')}<span class="corps"><span class="t" style="display:block">${esc(c.nom)}</span>
       <span class="s" style="display:block">${[u.charges ? pluriel(u.charges, 'charge') : 'Aucune charge', u.fixes ? pluriel(u.fixes, 'charge fixe', 'charges fixes') : ''].filter(Boolean).join(' · ')}</span></span>${ico('chevronD', 16)}</button></li>`; }).join('');
-  ouvrir('Catégories de charges', `<p class="aide">Renommer une catégorie ou changer sa couleur met à jour toutes ses charges, y compris dans les exports.</p>
+  ouvrir('Catégories de charges', `<p class="aide">Renommer une catégorie ou changer sa couleur met à jour toutes ses charges.</p>
     <div class="carte" style="padding:4px 14px"><ul class="liste">${l}</ul></div>`, {pied:btn('categorie-nouvelle', ico('plus', 16) + 'Nouvelle catégorie', 'btn p')});
 }
 /* Couleur proposée pour une nouvelle catégorie : la moins présente dans les charges des 12 derniers mois (pas celle du loyer,
@@ -1574,11 +1603,7 @@ async function supprimerCategorie(id){
       retirer(cible.id, 'Catégorie supprimée : ' + quoi + ' dans « ' + cible.nom + ' »'); }});
 }
 
-/* --- Exports CSV (point-virgule, UTF-8 avec BOM : s'ouvre directement dans Excel) ---
-   Un texte qui commence par = + - @ (ou tabulation, retour) serait lu comme une formule par Excel : précédé d'une apostrophe */
-const cellule = v => { let s = typeof v === 'number' ? String(v.toFixed(2)).replace('.', ',') : String(v ?? ''); if(typeof v !== 'number' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
-  return /[;"\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-const csv = lignes => '﻿' + lignes.map(l => l.map(cellule).join(';')).join('\r\n') + '\r\n';
+/* --- Fichier à enregistrer (sauvegarde) : feuille de partage sur iPhone, téléchargement ailleurs --- */
 async function partagerFichier(nom, contenu, type){
   const fichier = new File([contenu], nom, {type});
   if(navigator.canShare && navigator.share && estIOS()){
@@ -1590,18 +1615,168 @@ async function partagerFichier(nom, contenu, type){
   setTimeout(() => URL.revokeObjectURL(url), 30000);
   return true;
 }
-function exporterRecettes(){
-  const an = finMois.slice(0, 4), l = encaissements(an + '-01-01', an + '-12-31');
-  const nomP = pid => { const p = unPatient(pid); return !p ? '' : exportInitiales ? [p.prenom, p.nom].filter(Boolean).map(x => x.charAt(0).toUpperCase() + '.').join(' ') : nomComplet(p); };
-  const lignes = [['Date d’encaissement', 'Patient ou origine', 'Nature', 'Mode de paiement', 'Montant (€)'], ...l.map(x => [dateChiffres(x.date), x.patient ? nomP(x.patient) : x.libelle, x.patient ? x.libelle : 'Autre recette', nomMode(x.mode), x.montant]),
-    [], ['Total ' + an, '', '', '', somme(l)]];
-  partagerFichier('cabinet-livre-des-recettes-' + an + '.csv', csv(lignes), 'text/csv');
+
+/* --- Import d'un relevé bancaire (CSV des opérations de la Société Générale ; celui d'une autre banque convient en général) ---
+   Le fichier est lu dans le téléphone, rien n'est envoyé. Les catégories, sous-catégories et le pointage de la banque ne sont
+   pas repris : chaque opération est vérifiée, cochée ou non, et classée à la main. Dépenses → charges, crédits → autres recettes.
+   Chaque opération importée garde son empreinte (date, montant, libellé, rang parmi les identiques du fichier) : un relevé qui
+   chevauche le précédent ne la repropose pas. L'import en cours survit à la fermeture de la fiche (« Reprendre »), pas au verrouillage. */
+const COLONNES_RELEVE = [
+  ['date', 'Date de l’opération', [/^date (de (l )?)?(transaction|operation)/, /^date (de )?compta/, /^date$/, /^date/]],
+  ['libelle', 'Libellé', [/^libelle (de (l )?)?operation/, /^libelle$/, /^intitule/]],
+  ['detail', 'Libellé complet', [/^libelle compl/, /^detail/, /^libelle long/]],
+  ['montant', 'Montant', [/^montant/]],
+  ['debit', 'Débit', [/^debit/]],
+  ['credit', 'Crédit', [/^credit/]]
+];
+let releve = null;   /* import en cours : {fichier, sg, entetes, donnees, corr, choix:Map(empreinte → {garder, categorie}), colonnes:correspondance retouchée} */
+const enteteReleve = h => normEntete(h).replace(/['’-]/g, ' ').replace(/\s+/g, ' ').trim();
+const celReleve = v => txt(v).replace(/^="(.*)"$/, '$1').trim();
+/* Colonnes reconnues par leur titre : « Date transaction » plutôt que « Date comptabilisation », « Libellé opération »… */
+function colonnesReleve(entetes){
+  const h = entetes.map(enteteReleve), prises = new Set(), corr = {};
+  COLONNES_RELEVE.forEach(([k, , tests]) => { corr[k] = -1;
+    for(const t of tests){ const i = h.findIndex((x, j) => !prises.has(j) && t.test(x)); if(i >= 0){ corr[k] = i; prises.add(i); break; } } });
+  return corr;
 }
-function exporterDepenses(){
-  const an = finMois.slice(0, 4), l = chargesEntre(an + '-01-01', an + '-12-31').reverse();
-  const lignes = [['Date', 'Catégorie', 'Libellé', 'Mode de paiement', 'Montant (€)'], ...l.map(c => [dateChiffres(c.date), nomCategorie(c.categorie), c.libelle, nomMode(c.mode), c.montant]),
-    [], ['Total ' + an, '', '', '', somme(l)]];
-  partagerFichier('cabinet-registre-des-depenses-' + an + '.csv', csv(lignes), 'text/csv');
+const colonnesCompletes = c => c.date >= 0 && (c.montant >= 0 || c.debit >= 0 || c.credit >= 0);
+/* Séparateur : celui qui découpe le plus une des premières lignes (la 1re peut être un en-tête de compte) */
+const sepReleve = t => { const l = String(t).split(/\r?\n/).slice(0, 15); return [';', ',', '\t'].map(x => [x, Math.max(...l.map(y => y.split(x).length))]).sort((a, b) => b[1] - a[1])[0][0]; };
+/* Montant : -18,24 · 1 234,56 € · 1.234,56 · (18,24) · 18,24- ; null si ce n'est pas un nombre */
+function montantReleve(v){
+  let s = celReleve(v).replace(/[\s'’]/g, '').replace(/−/g, '-').replace(/^(eur|€)|(eur|€)$/gi, ''), neg = false;
+  if(/^\(.+\)$/.test(s)){ neg = true; s = s.slice(1, -1); }
+  if(/^[^-]+-$/.test(s)){ neg = true; s = s.slice(0, -1); }
+  s = s.includes(',') && s.includes('.') ? (s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '')) : s.replace(',', '.');
+  if(!/^[+-]?(\d+(\.\d*)?|\.\d+)$/.test(s)) return null;
+  const n = Math.round(parseFloat(s) * 100) / 100;
+  return neg ? -n : n;
+}
+/* Libellé lisible : sans « CARTE X1234 29/10 » ni « PRLV SEPA », sans les références de mandat (le libellé complet va dans la note) */
+const sansReference = brut => brut.replace(/^\d{5,}\s+(?=\D)/, '');
+function libelleReleve(brut){
+  const s = sansReference(brut).replace(/^CARTE\s+X?\d{4}\s+(\d{2}\/\d{2}(\/\d{2,4})?\s+)?/i, '').replace(/^PRLV\s+SEPA\s+/i, '')
+    .replace(/\s+(ECH|ID EMETTEUR|MDT|REF|LIB)\/.*$/i, '').trim();
+  return s || brut;
+}
+function modeReleve(brut, credit){
+  const n = norm(brut).replace(/^\d{5,}\s+/, '');
+  if(/^(carte|cb)\b|\b(remise|rem) (carte|cb)\b/.test(n)) return 'cb';
+  if(/^(prlv|prelevement|prelev)\b/.test(n)) return credit ? 'virement' : 'prelevement';
+  if(/^(vir|virement)\b/.test(n)) return 'virement';
+  if(/^(cheque|chq)\b|\b(remise|rem) (de )?(cheques?|chq)\b/.test(n)) return 'cheque';
+  if(/^(retrait|ret dab|versement especes|vrst)\b/.test(n)) return 'especes';
+  return 'autre';
+}
+function choisirReleve(){
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.csv,text/csv,text/plain,text/comma-separated-values';
+  inp.onchange = async () => {
+    const f = inp.files && inp.files[0]; if(!f) return;
+    let t = '', lignes = [];
+    try { t = await lireTexteFichier(f); lignes = lireCsv(t, sepReleve(t)); } catch(e){ lignes = []; }
+    if(/\.xlsx?$/i.test(f.name) || t.startsWith('PK')) return toast('Fichier Excel : téléchargez plutôt les opérations au format CSV depuis votre espace bancaire.');
+    if(lignes.length < 2) return toast('Fichier vide ou illisible : choisissez le fichier CSV téléchargé depuis votre banque.');
+    let i = lignes.slice(0, 20).findIndex(l => colonnesCompletes(colonnesReleve(l))); if(i < 0) i = 0;
+    const entetes = lignes[i], h = entetes.map(enteteReleve);
+    releve = {fichier:f.name, entetes, donnees:lignes.slice(i + 1), corr:colonnesReleve(entetes), choix:new Map(),
+      sg:['pointee', 'sous categorie', 'libelle complet', 'detail de l ecriture'].some(x => h.some(y => y.startsWith(x)))};
+    feuilleReleve();
+  };
+  inp.click();
+}
+/* Opérations du fichier, de la plus récente à la plus ancienne, avec les choix déjà faits (cochée, catégorie) */
+function opsReleve(r){
+  const c = r.corr, val = (l, k) => c[k] >= 0 ? celReleve(l[c[k]]) : '';
+  const deja = new Set([...DB.charges, ...DB.recettes].map(x => x.releve).filter(Boolean)), rangs = new Map(), ops = []; let ignorees = 0;
+  r.donnees.forEach(l => {
+    const date = dateImport(val(l, 'date'));
+    let m = c.montant >= 0 ? montantReleve(val(l, 'montant')) : null;
+    if(m == null){ const d = montantReleve(val(l, 'debit')), cr = montantReleve(val(l, 'credit')); m = cr ? Math.abs(cr) : d ? -Math.abs(d) : 0; }
+    if(!date || !m){ ignorees++; return; }
+    const court = val(l, 'libelle').replace(/\s+/g, ' '), long = val(l, 'detail').replace(/\s+/g, ' '), brut = (long.length > court.length ? long : court) || 'Opération';
+    const base = date + '|' + m.toFixed(2) + '|' + norm(brut), rang = (rangs.get(base) || 0) + 1; rangs.set(base, rang);
+    const cle = base + '|' + rang, ch = r.choix.get(cle) || {}, dj = deja.has(cle);
+    const libelle = libelleReleve(brut), complet = sansReference(brut) !== libelle ? brut : '';   /* complet : seulement s'il dit plus que le libellé */
+    ops.push({cle, date, montant:m, brut, libelle, complet, mode:modeReleve(brut, m > 0), deja:dj, garder:!dj && !!ch.garder, categorie:m < 0 && uneCategorie(ch.categorie) ? ch.categorie : ''});
+  });
+  return {ops:ops.sort((a, b) => b.date.localeCompare(a.date)), ignorees};
+}
+/* Même montant, à 4 jours près, déjà saisi à la main (charge, séance réglée, recette) : peut-être la même opération */
+function semblable(o){
+  const d1 = decale(o.date, -4), d2 = decale(o.date, 4);
+  if(o.montant < 0){ const c = DB.charges.find(x => !x.releve && x.date >= d1 && x.date <= d2 && x.montant === -o.montant);
+    return c ? 'Déjà saisie ? ' + (c.libelle || nomCategorie(c.categorie)) + ', ' + eur(c.montant) + ' le ' + dateCourte(c.date) : ''; }
+  const e = encaissements(d1, d2).find(x => x.montant === o.montant && !(x.recette && (DB.recettes.find(y => y.id === x.recette) || {}).releve));
+  return e ? 'Déjà compté ? ' + (e.patient ? 'Séance de ' + nomAff(unPatient(e.patient)) : e.libelle) + ', ' + eur(e.montant) + ' le ' + dateCourte(e.date) : '';
+}
+function feuilleReleve({defil = 0} = {}){
+  const r = releve; if(!r) return;
+  const {ops, ignorees} = opsReleve(r), nouvelles = ops.filter(o => !o.deja), deja = ops.filter(o => o.deja), lisible = colonnesCompletes(r.corr) && ops.length;
+  const dates = ops.map(o => o.date).sort(), a = dates[0], b = dates[dates.length - 1], credits = nouvelles.some(o => o.montant > 0);
+  const periode = !a ? '' : a === b ? 'le ' + dateMoyenne(a) : 'du ' + (a.slice(0, 4) === b.slice(0, 4) ? dateCourte(a) : dateMoyenne(a)) + ' au ' + dateMoyenne(b);
+  const signe = m => (m > 0 ? '+' : '−') + eur(Math.abs(m));
+  const optCat = sel => `<option value="">Choisir la catégorie…</option>${DB.categories.map(c => `<option value="${esc(c.id)}"${c.id === sel ? ' selected' : ''}>${esc(c.nom)}</option>`).join('')}<option value="__nouvelle">+ Nouvelle catégorie…</option>`;
+  const ligne = (o, i) => { const al = semblable(o);
+    return `<li class="${o.garder ? 'on' : ''}" data-i="${i}"><label class="op-case"><input type="checkbox"${o.garder ? ' checked' : ''} aria-label="${esc('Importer : ' + o.libelle + ', ' + signe(o.montant) + ', ' + dateCourte(o.date))}"></label>
+      <div class="corps"><div class="op-l1"><span class="t">${esc(o.libelle)}</span><span class="op-mt${o.montant > 0 ? ' credit' : ''}">${signe(o.montant)}</span></div>
+        <div class="s">${esc([dateCourte(o.date), o.mode !== 'autre' ? nomMode(o.mode) : '', o.complet].filter(Boolean).join(' · '))}</div>
+        ${al ? `<div class="op-alerte">${ico('alerte', 13)}<span>${esc(al)}</span></div>` : ''}
+        ${o.montant < 0 ? `<select class="${o.garder && !o.categorie ? 'manque' : ''}" aria-label="${esc('Catégorie : ' + o.libelle)}">${optCat(o.categorie)}</select>` : puce('Autre recette', 'vert')}</div></li>`; };
+  const corps = `<p class="aide">${esc(r.fichier)}${r.sg ? ' · Société Générale' : ''}${periode ? ' · ' + esc(periode) : ''} · ${pluriel(ops.length, 'opération')}. Lu dans ce téléphone : rien n’est envoyé.</p>
+    <p class="aide">Cochez les opérations à importer et choisissez la catégorie de chaque dépense : elles deviennent des charges${credits ? ', les crédits des autres recettes' : ''}. Les catégories, sous-catégories et le pointage de la banque ne sont pas repris.</p>
+    ${credits ? `<div class="bandeau bleu">${ico('alerte', 18)}<div class="txt">Ne cochez pas un règlement de séance déjà encaissé dans Cabinet : il serait compté deux fois.</div></div>` : ''}
+    ${lisible ? '' : `<div class="bandeau rose">${ico('alerte', 18)}<div class="txt"><strong>Aucune opération reconnue</strong>Indiquez ci-dessous les colonnes de la date et du montant.</div></div>`}
+    ${nouvelles.length ? `<div class="carte" style="padding:4px 14px"><ul class="ops">${nouvelles.map(ligne).join('')}</ul></div>` : ops.length ? `<div class="carte">${vide('Toutes les opérations de ce fichier sont déjà dans Cabinet.')}</div>` : ''}
+    ${deja.length ? `<details class="carte" style="padding:10px 14px"><summary style="cursor:pointer;font-weight:600">${pluriel(deja.length, 'opération déjà importée', 'opérations déjà importées')}</summary>
+      <ul class="liste" style="margin-top:6px">${deja.map(o => `<li><span class="corps"><span class="t" style="display:block">${esc(o.libelle)}</span><span class="s" style="display:block">${esc(dateCourte(o.date))}</span></span><span class="droite">${signe(o.montant)}</span></li>`).join('')}</ul></details>` : ''}
+    ${ignorees ? `<p class="aide">${pluriel(ignorees, 'ligne')} sans date ou sans montant ${ignorees > 1 ? 'ignorées' : 'ignorée'} (solde, ligne vide…).</p>` : ''}
+    <details class="carte" style="padding:10px 14px"${lisible && !r.colonnes ? '' : ' open'}><summary style="cursor:pointer;font-weight:600">Correspondance des colonnes</summary><div style="margin-top:12px">
+      ${COLONNES_RELEVE.map(([k, t]) => `<label class="champ"><span>${esc(t)}</span><select data-col="${k}"><option value="-1">— aucune —</option>${r.entetes.map((h, i) => `<option value="${i}"${r.corr[k] === i ? ' selected' : ''}>${esc(h || 'Colonne ' + (i + 1))}</option>`).join('')}</select></label>`).join('')}
+      <p class="aide" style="margin:0">Débit et Crédit servent seulement si la banque les sépare au lieu d’un montant signé.</p></div></details>`;
+  const pied = `<p class="releve-bilan" id="releve-bilan" role="status"></p>${btn('releve-ok', 'Importer', 'btn p plein', 'id="releve-ok"')}`;
+  ouvrir('Importer un relevé', corps, {pied, large:true, apres:v => {
+    const feuille = $('.feuille', v), memo = o => r.choix.set(o.cle, {garder:o.garder, categorie:o.categorie});
+    $('.feuille-pied', v).classList.add('colle');
+    const bilan = () => {
+      const l = nouvelles.filter(o => o.garder), ch = l.filter(o => o.montant < 0), re = l.filter(o => o.montant > 0), manque = ch.filter(o => !o.categorie).length, p = $('#releve-bilan', v), bt = $('#releve-ok', v);
+      p.classList.toggle('erreur', !!manque);
+      p.textContent = !l.length ? (nouvelles.length ? 'Cochez les opérations à importer.' : 'Rien à importer.') : manque ? (manque > 1 ? manque + ' dépenses cochées sans catégorie' : '1 dépense cochée sans catégorie')
+        : [ch.length ? pluriel(ch.length, 'charge') + ' · ' + eur(somme(ch.map(o => -o.montant))) : '', re.length ? pluriel(re.length, 'recette') + ' · ' + eur(somme(re.map(o => o.montant))) : ''].filter(Boolean).join('  —  ');
+      bt.textContent = l.length ? 'Importer ' + pluriel(l.length, 'opération') : 'Importer'; bt.disabled = !l.length || !!manque;
+    };
+    v.addEventListener('change', e => {
+      const el = e.target;
+      if(el.dataset.col){ r.corr[el.dataset.col] = Number(el.value); r.colonnes = true; return feuilleReleve({defil:feuille.scrollTop}); }   /* reste ouverte */
+      const li = el.closest('.ops > li'); if(!li) return;
+      const o = nouvelles[Number(li.dataset.i)];
+      if(el.type === 'checkbox') o.garder = el.checked;
+      else if(el.value === '__nouvelle'){   /* fiche de la catégorie, puis retour au relevé, au même endroit */
+        el.value = o.categorie; const y = feuille.scrollTop; fermer(true);
+        return formCategorie({}, {puis:id => { if(id){ o.categorie = id; o.garder = true; memo(o); } feuilleReleve({defil:y}); }});
+      }
+      else { o.categorie = el.value; if(o.categorie) o.garder = true; }
+      memo(o);
+      li.classList.toggle('on', o.garder); $('input', li).checked = o.garder;
+      const s = $('select', li); if(s) s.classList.toggle('manque', o.garder && !o.categorie);
+      bilan();
+    });
+    $('#releve-ok', v).onclick = () => importerReleve(nouvelles.filter(o => o.garder));
+    bilan(); if(defil) feuille.scrollTop = defil;
+  }});
+}
+/* Une dépense du montant d'une charge fixe de sa catégorie, pas encore saisie ce mois-là, compte pour elle (plus de « Saisir ») */
+function importerReleve(l){
+  if(!l.length || l.some(o => o.montant < 0 && !uneCategorie(o.categorie))) return;
+  const avant = JSON.stringify(DB), garde = releve, t = maintenant(), modes = MODES.map(m => m[0]);
+  l.forEach(o => {
+    const x = {id:uid(), date:o.date, libelle:o.libelle, releve:o.cle, cree:t, modif:t};
+    if(o.montant > 0){ DB.recettes.push({...x, montant:o.montant, mode:modes.includes(o.mode) ? o.mode : 'autre'}); return; }
+    const m = -o.montant, fx = DB.fixes.find(f => f.categorie === o.categorie && f.montant === m && !fixeSaisie(f, moisDe(o.date)));
+    DB.charges.push({...x, categorie:o.categorie, montant:m, mode:o.mode, fixe:fx ? fx.id : '', note:o.complet ? 'Relevé : ' + o.complet : ''});
+  });
+  const [d, f] = periodeFin(); if(!l.some(o => o.date >= d && o.date <= f)) finMois = moisDe(l.map(o => o.date).sort().pop());
+  DB = normaliser(DB); sauver(); releve = null; fermer(true); rendre();
+  toast(pluriel(l.length, 'opération') + ' importée' + (l.length > 1 ? 's' : ''), {annuler:() => { DB = normaliser(JSON.parse(avant)); releve = garde; sauver(); rendre(); toast('Import annulé : « Reprendre » dans Finances'); }});
 }
 
 /* --- Réglages --- */
@@ -1766,9 +1941,10 @@ const CHAMPS_IMPORT = [
 const normEntete = h => norm(String(h || '').replace(/^﻿/, '').replace(/^"|"$/g, '')).replace(/\s+/g, ' ').trim();
 async function lireTexteFichier(f){ const buf = await f.arrayBuffer(); try { return new TextDecoder('utf-8', {fatal:true}).decode(buf); } catch(e){ return new TextDecoder('windows-1252').decode(buf); } }
 /* CSV : séparateur deviné sur la 1re ligne (; , ou tabulation), champs entre guillemets (avec "" et retours à la ligne) */
-function lireCsv(t){
+function lireCsv(t, sep = ''){
   t = String(t || '').replace(/^﻿/, '');
-  const tete = t.split(/\r?\n/)[0] || '', sep = [';', ',', '\t'].map(x => [x, tete.split(x).length]).sort((a, b) => b[1] - a[1])[0][0];
+  const tete = t.split(/\r?\n/)[0] || '';
+  sep = sep || [';', ',', '\t'].map(x => [x, tete.split(x).length]).sort((a, b) => b[1] - a[1])[0][0];
   const lignes = []; let ligne = [], champ = '', guil = false;
   for(let i = 0; i < t.length; i++){
     const c = t[i];
@@ -1976,8 +2152,8 @@ const ACTIONS = {
   'fixe-ouvrir':el => formFixe({id:el.dataset.id}),
   'recette-nouvelle':() => formRecette({}),
   'recette-ouvrir':el => formRecette({id:el.dataset.id}),
-  'export-recettes':() => exporterRecettes(),
-  'export-depenses':() => exporterDepenses(),
+  'releve-importer':() => choisirReleve(),
+  'releve-reprendre':() => feuilleReleve(),
   /* réglages, sauvegarde, données */
   'reg-cabinet':() => formReglages('cabinet'), 'reg-seances':() => formReglages('seances'), 'reg-finances':() => formReglages('finances'), 'reg-messages':() => formReglages('messages'),
   'code-changer':() => formChangerCode(),
@@ -2000,7 +2176,7 @@ const ACTIONS = {
     retirerExemples(); sauver(); rendre(); toast('Exemples retirés'); },
   'tout-effacer':async () => {
     if(!(await confirmer({titre:'Tout effacer ?', texte:'Patients, rendez-vous, notes, finances et code : tout sera effacé de cet appareil. <strong>Irréversible</strong> sans sauvegarde.', ok:'Tout effacer', danger:true, saisie:'EFFACER'}))) return;
-    await effacerCoffre(); cleDonnees = null; coffre = null; DB = vierge(); assistant = {}; location.hash = ''; accueil(1);
+    await effacerCoffre(); cleDonnees = null; coffre = null; DB = vierge(); releve = null; assistant = {}; location.hash = ''; accueil(1);
   }
 };
 /* Prochaine heure ronde libre du jour (ou le début de journée) */
